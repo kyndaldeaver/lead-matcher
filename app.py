@@ -315,24 +315,13 @@ else:
         sort_column, ascending=True, na_position="last", kind="stable"
     )
 
-st.subheader("Filtered results")
-st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads after filters.")
+st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
 st.dataframe(filtered, use_container_width=True, hide_index=True)
 
-with st.expander(f"View all leads ({len(matched):,})"):
-    st.dataframe(matched, use_container_width=True, hide_index=True)
-
 st.download_button(
-    "Download filtered leads and assignments",
+    "Download displayed leads and assignments",
     data=csv_bytes(filtered),
-    file_name="ranked_leads_with_assignments.csv",
-    mime="text/csv",
-)
-
-st.download_button(
-    "Download all leads and assignments",
-    data=csv_bytes(matched),
-    file_name="all_leads_with_assignments.csv",
+    file_name="leads_with_assignments.csv",
     mime="text/csv",
 )
 

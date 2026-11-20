@@ -1,6 +1,6 @@
 # Lead Matcher
 
-A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within each rep's capacity.
+A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within one rep capacity.
 
 ## Run locally
 
@@ -25,8 +25,8 @@ Sales-reps file:
 Rep_ID,Name,Region,Language,Industry_Vertical_Expertise,Seniority_Level,Current_Capacity,Max_Capacity
 ```
 
-## Filter and sort controls
+## Filter and sort
 
-The results page provides dropdown filters for language, industry, and company-size group (under 100, 100–999, 1,000+, or missing). The sort dropdown orders the filtered table by priority score, language, industry, or company size.
+The results table is controlled by dropdown filters for language, industry, and company-size group. To view all leads, select **All** in each filter. The sort dropdown changes the order of the displayed table by priority score, language, industry, or company size.
 
-The filtered table is shown below the dropdowns. An expandable **View all leads** section shows every processed lead, regardless of filters.
+Only the displayed table is offered as a CSV download. This avoids a separate, redundant all-leads view.
