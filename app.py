@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from io import BytesIO
 from typing import Any
 
 import pandas as pd
@@ -139,7 +138,6 @@ def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
         data["Score"], bins=[-1, 39, 59, 84, 100],
         labels=["low", "medium", "high", "critical"],
     ).astype("string")
-    # VIP referrals always receive critical priority, including when score ties at 100.
     data.loc[data["VIP_Referral"] == "true", "Priority"] = "critical"
     return data.sort_values("Score", ascending=False, kind="stable").reset_index(drop=True)
 
@@ -153,13 +151,12 @@ def capacity_ratio(rep: pd.Series) -> float:
 
 
 def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Assign top-priority leads to the best available rep; prefer expertise and fit."""
     ranked = score_leads(leads)
     roster = reps.copy().reset_index(drop=True)
     assignments: list[dict[str, Any]] = []
 
     for _, lead in ranked.iterrows():
-        candidates: list[tuple[tuple[float, ...], int, list[str]]] = []
+        candidates: list[tuple[tuple[float, float, float], int, list[str]]] = []
         for rep_index, rep in roster.iterrows():
             max_capacity = float(rep["Max_Capacity"])
             current_capacity = float(rep["Current_Capacity"])
@@ -174,8 +171,6 @@ def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFr
                 lead_value, rep_value = str(lead[lead_col]).lower(), str(rep[rep_col]).lower()
                 if lead_value not in {"n/a", "unknown", ""} and rep_value not in {"n/a", "unknown", ""} and lead_value == rep_value:
                     matched.append(label)
-            # Rank by the number of matching attributes, then lower utilization;
-            # stable final tie-break makes results reproducible.
             candidates.append(((float(len(matched)), -capacity_ratio(rep), -current_capacity), rep_index, matched))
 
         if candidates:
@@ -200,6 +195,16 @@ def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFr
 
 def csv_bytes(frame: pd.DataFrame) -> bytes:
     return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def company_size_group(value: Any) -> str:
+    if pd.isna(value):
+        return "Missing"
+    if value < 100:
+        return "Under 100"
+    if value < 1000:
+        return "100–999"
+    return "1,000+"
 
 
 st.title("🎯 Lead Matcher")
@@ -245,40 +250,17 @@ with st.expander("Preview cleaned inputs"):
     st.subheader("Sales reps")
     st.dataframe(reps_clean.head(10), use_container_width=True, hide_index=True)
 
-assigned = matched["Assigned_Rep_ID"].ne("")
+assigned_mask = matched["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("")
+assigned_count = int(assigned_mask.sum())
+unassigned_count = int((~assigned_mask).sum())
 critical = matched["Priority"].eq("critical").sum()
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Leads", f"{len(matched):,}")
 col2.metric("Critical priority", f"{critical:,}")
-col3.metric("Assigned", f"{assigned.sum():,}")
-col4.metric("Unassigned", f"{(~assigned).sum():,}")
+col3.metric("Assigned", f"{assigned_count:,}")
+col4.metric("Unassigned", f"{unassigned_count:,}")
 
-st.subheader("Ranked leads and assignments")
-st.caption("Leads are prioritized by your scoring rules. Each lead is assigned to an available rep with the strongest region, language, and industry fit, then lower capacity utilization.")
-st.dataframe(matched, use_container_width=True, hide_index=True)
-st.download_button(
-    "Download ranked leads and assignments",
-    data=csv_bytes(matched), file_name="ranked_leads_with_assignments.csv",
-    mime="text/csv",
-)
-st.download_button(
-    "Download updated rep capacities",
-    data=csv_bytes(final_roster), file_name="sales_reps_updated_capacity.csv",
-    mime="text/csv",
-)
-
-with st.expander("Scoring and assignment rules"):
-    st.markdown(
-        "- VIP referrals score **100** and are always **critical**.\n"
-        "- Company size: **50** points for 1,000+, **30** for 100–999, **0** below 100, or **20** when missing.\n"
-        "- Recent activity: demo/contact sales **35**, webinar/trial **25**, whitepaper **15**, pricing page **10**, blog subscription **5**.\n"
-        "- Industry: technology **15**, healthcare/finance **10**.\n"
-        "- Other priority bands: high **60–84**, medium **40–59**, low **0–39**.\n"
-        "- Rep assignment is a recommendation: exact region, language, and industry matches rank first; ties prefer lower capacity utilization. Each rep is assigned no more than their positive Max_Capacity."
-    )
-    
-    st.subheader("Filter and sort leads")
-
+st.subheader("Filter and sort leads")
 filter1, filter2, filter3, filter4 = st.columns(4)
 
 with filter1:
@@ -320,9 +302,12 @@ if sort_by == "Company size":
     filtered = filtered.sort_values(
         "Company_Size", ascending=False, na_position="last", kind="stable"
     )
+elif sort_by == "Priority score":
+    filtered = filtered.sort_values(
+        "Score", ascending=False, na_position="last", kind="stable"
+    )
 else:
     sort_column = {
-        "Priority score": "Score",
         "Language": "Language",
         "Industry": "Industry_Vertical",
     }[sort_by]
@@ -330,8 +315,12 @@ else:
         sort_column, ascending=True, na_position="last", kind="stable"
     )
 
-st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
+st.subheader("Filtered results")
+st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads after filters.")
 st.dataframe(filtered, use_container_width=True, hide_index=True)
+
+with st.expander(f"View all leads ({len(matched):,})"):
+    st.dataframe(matched, use_container_width=True, hide_index=True)
 
 st.download_button(
     "Download filtered leads and assignments",
@@ -341,8 +330,25 @@ st.download_button(
 )
 
 st.download_button(
+    "Download all leads and assignments",
+    data=csv_bytes(matched),
+    file_name="all_leads_with_assignments.csv",
+    mime="text/csv",
+)
+
+st.download_button(
     "Download updated rep capacities",
     data=csv_bytes(final_roster),
     file_name="sales_reps_updated_capacity.csv",
     mime="text/csv",
 )
+
+with st.expander("Scoring and assignment rules"):
+    st.markdown(
+        "- VIP referrals score **100** and are always **critical**.\n"
+        "- Company size: **50** points for 1,000+, **30** for 100–999, **0** below 100, or **20** when missing.\n"
+        "- Recent activity: demo/contact sales **35**, webinar/trial **25**, whitepaper **15**, pricing page **10**, blog subscription **5**.\n"
+        "- Industry: technology **15**, healthcare/finance **10**.\n"
+        "- Other priority bands: high **60–84**, medium **40–59**, low **0–39**.\n"
+        "- Rep assignment is a recommendation: exact region, language, and industry matches rank first; ties prefer lower capacity utilization. Each rep is assigned no more than their positive Max_Capacity."
+    )
