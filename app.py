@@ -264,7 +264,7 @@ results_tab, queue_tab = st.tabs(["All leads", f"Assignment queue ({unassigned_c
 
 with results_tab:
     st.subheader("Filter and sort leads")
-    filter1, filter2, filter3, filter4 = st.columns(4)
+    filter1, filter2, filter3 = st.columns(3)
 
     with filter1:
         languages = sorted(matched["Language"].fillna("N/A").astype(str).unique())
@@ -280,12 +280,6 @@ with results_tab:
         available_sizes = [size for size in size_options if size in size_groups.values]
         size_filter = st.selectbox("Company size", ["All"] + available_sizes)
 
-    with filter4:
-        sort_by = st.selectbox(
-            "Sort by",
-            ["Priority score", "Language", "Industry", "Company size"],
-        )
-
     filtered = matched.copy()
     if language_filter != "All":
         filtered = filtered[filtered["Language"].fillna("N/A").astype(str) == language_filter]
@@ -295,23 +289,6 @@ with results_tab:
         ]
     if size_filter != "All":
         filtered = filtered[filtered["Company_Size"].map(company_size_group) == size_filter]
-
-    if sort_by == "Company size":
-        filtered = filtered.sort_values(
-            "Company_Size", ascending=False, na_position="last", kind="stable"
-        )
-    elif sort_by == "Priority score":
-        filtered = filtered.sort_values(
-            "Score", ascending=False, na_position="last", kind="stable"
-        )
-    else:
-        sort_column = {
-            "Language": "Language",
-            "Industry": "Industry_Vertical",
-        }[sort_by]
-        filtered = filtered.sort_values(
-            sort_column, ascending=True, na_position="last", kind="stable"
-        )
 
     displayed_assigned = int(
         filtered["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("").sum()
@@ -341,6 +318,27 @@ with results_tab:
         },
         use_container_width=True,
     )
+
+    sort_by = st.selectbox(
+        "Sort by",
+        ["Priority score", "Language", "Industry", "Company size"],
+    )
+    if sort_by == "Company size":
+        filtered = filtered.sort_values(
+            "Company_Size", ascending=False, na_position="last", kind="stable"
+        )
+    elif sort_by == "Priority score":
+        filtered = filtered.sort_values(
+            "Score", ascending=False, na_position="last", kind="stable"
+        )
+    else:
+        sort_column = {
+            "Language": "Language",
+            "Industry": "Industry_Vertical",
+        }[sort_by]
+        filtered = filtered.sort_values(
+            sort_column, ascending=True, na_position="last", kind="stable"
+        )
 
     st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
     st.dataframe(filtered, use_container_width=True, hide_index=True)
