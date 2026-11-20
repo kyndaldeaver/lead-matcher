@@ -321,11 +321,11 @@ with results_tab:
         filtered["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("").sum()
     )
     assignment_chart = pd.DataFrame({
-        "Assignment status": ["Assigned", "Unassigned"],
+        "Assignment Status": ["Assigned", "Unassigned"],
         "Leads": [displayed_assigned, len(filtered) - displayed_assigned],
     })
     with chart_col:
-        st.markdown("<h3 style='text-align: center;'>Assigned vs. unassigned leads</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Assigned vs. Unassigned Leads</h3>", unsafe_allow_html=True)
         chart_left, chart_center, chart_right = st.columns([1, 4, 1])
         with chart_center:
             st.vega_lite_chart(
@@ -337,13 +337,13 @@ with results_tab:
                     "encoding": {
                         "theta": {"field": "Leads", "type": "quantitative"},
                         "color": {
-                            "field": "Assignment status",
+                            "field": "Assignment Status",
                             "type": "nominal",
                             "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
-                            "legend": {"orient": "bottom", "title": None},
+                            "legend": {"orient": "bottom", "title": None, "labelTransform": [{"type": "toTitlecase"}]},
                         },
                         "tooltip": [
-                            {"field": "Assignment status", "type": "nominal"},
+                            {"field": "Assignment Status", "type": "nominal"},
                             {"field": "Leads", "type": "quantitative"},
                         ],
                     },
