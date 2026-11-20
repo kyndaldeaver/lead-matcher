@@ -207,7 +207,7 @@ def company_size_group(value: Any) -> str:
     return "1,000+"
 
 
-st.title("Lead Matcher")
+st.title("🎯 Lead Matcher")
 st.write("Upload lead and sales-representative CSV files to clean, prioritize, and assign leads.")
 
 with st.sidebar:
@@ -258,79 +258,97 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Leads", f"{len(matched):,}")
 col2.metric("Critical priority", f"{critical:,}")
 col3.metric("Assigned", f"{assigned_count:,}")
-col4.metric("Unassigned", f"{unassigned_count:,}")
+col4.metric("Waiting for a rep", f"{unassigned_count:,}")
 
-st.subheader("Filter and sort leads")
-filter1, filter2, filter3, filter4 = st.columns(4)
+results_tab, queue_tab = st.tabs(["All leads", f"Assignment queue ({unassigned_count})"])
 
-with filter1:
-    languages = sorted(matched["Language"].fillna("N/A").astype(str).unique())
-    language_filter = st.selectbox("Language", ["All"] + languages)
+with results_tab:
+    st.subheader("Filter and sort leads")
+    filter1, filter2, filter3, filter4 = st.columns(4)
 
-with filter2:
-    industries = sorted(matched["Industry_Vertical"].fillna("unknown").astype(str).unique())
-    industry_filter = st.selectbox("Industry", ["All"] + industries)
+    with filter1:
+        languages = sorted(matched["Language"].fillna("N/A").astype(str).unique())
+        language_filter = st.selectbox("Language", ["All"] + languages)
 
-with filter3:
-    size_groups = matched["Company_Size"].map(company_size_group)
-    size_options = ["Under 100", "100–999", "1,000+", "Missing"]
-    available_sizes = [size for size in size_options if size in size_groups.values]
-    size_filter = st.selectbox("Company size", ["All"] + available_sizes)
+    with filter2:
+        industries = sorted(matched["Industry_Vertical"].fillna("unknown").astype(str).unique())
+        industry_filter = st.selectbox("Industry", ["All"] + industries)
 
-with filter4:
-    sort_by = st.selectbox(
-        "Sort by",
-        ["Priority score", "Language", "Industry", "Company size"],
+    with filter3:
+        size_groups = matched["Company_Size"].map(company_size_group)
+        size_options = ["Under 100", "100–999", "1,000+", "Missing"]
+        available_sizes = [size for size in size_options if size in size_groups.values]
+        size_filter = st.selectbox("Company size", ["All"] + available_sizes)
+
+    with filter4:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Priority score", "Language", "Industry", "Company size"],
+        )
+
+    filtered = matched.copy()
+    if language_filter != "All":
+        filtered = filtered[filtered["Language"].fillna("N/A").astype(str) == language_filter]
+    if industry_filter != "All":
+        filtered = filtered[
+            filtered["Industry_Vertical"].fillna("unknown").astype(str) == industry_filter
+        ]
+    if size_filter != "All":
+        filtered = filtered[filtered["Company_Size"].map(company_size_group) == size_filter]
+
+    if sort_by == "Company size":
+        filtered = filtered.sort_values(
+            "Company_Size", ascending=False, na_position="last", kind="stable"
+        )
+    elif sort_by == "Priority score":
+        filtered = filtered.sort_values(
+            "Score", ascending=False, na_position="last", kind="stable"
+        )
+    else:
+        sort_column = {
+            "Language": "Language",
+            "Industry": "Industry_Vertical",
+        }[sort_by]
+        filtered = filtered.sort_values(
+            sort_column, ascending=True, na_position="last", kind="stable"
+        )
+
+    st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
+    st.dataframe(filtered, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Download displayed leads and assignments",
+        data=csv_bytes(filtered),
+        file_name="leads_with_assignments.csv",
+        mime="text/csv",
+        key="download_filtered_leads",
+    )
+    st.download_button(
+        "Download updated rep capacities",
+        data=csv_bytes(final_roster),
+        file_name="sales_reps_updated_capacity.csv",
+        mime="text/csv",
+        key="download_rep_capacities",
     )
 
-filtered = matched.copy()
-
-if language_filter != "All":
-    filtered = filtered[filtered["Language"].fillna("N/A").astype(str) == language_filter]
-
-if industry_filter != "All":
-    filtered = filtered[
-        filtered["Industry_Vertical"].fillna("unknown").astype(str) == industry_filter
-    ]
-
-if size_filter != "All":
-    filtered = filtered[
-        filtered["Company_Size"].map(company_size_group) == size_filter
-    ]
-
-if sort_by == "Company size":
-    filtered = filtered.sort_values(
-        "Company_Size", ascending=False, na_position="last", kind="stable"
-    )
-elif sort_by == "Priority score":
-    filtered = filtered.sort_values(
-        "Score", ascending=False, na_position="last", kind="stable"
-    )
-else:
-    sort_column = {
-        "Language": "Language",
-        "Industry": "Industry_Vertical",
-    }[sort_by]
-    filtered = filtered.sort_values(
-        sort_column, ascending=True, na_position="last", kind="stable"
-    )
-
-st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
-st.dataframe(filtered, use_container_width=True, hide_index=True)
-
-st.download_button(
-    "Download displayed leads and assignments",
-    data=csv_bytes(filtered),
-    file_name="leads_with_assignments.csv",
-    mime="text/csv",
-)
-
-st.download_button(
-    "Download updated rep capacities",
-    data=csv_bytes(final_roster),
-    file_name="sales_reps_updated_capacity.csv",
-    mime="text/csv",
-)
+with queue_tab:
+    st.subheader("Leads waiting to be assigned")
+    queue = matched.loc[~assigned_mask].copy().reset_index(drop=True)
+    if queue.empty:
+        st.success("There are no leads waiting for a representative.")
+    else:
+        queue.insert(0, "Queue Position", range(1, len(queue) + 1))
+        st.caption(
+            "Queue order follows lead priority score, highest first. These leads could not be assigned "
+            "because no representative had remaining capacity."
+        )
+        st.dataframe(queue, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Download assignment queue",
+            data=csv_bytes(queue),
+            file_name="unassigned_lead_queue.csv",
+            mime="text/csv",
+            key="download_assignment_queue",
+        )
 
 with st.expander("Scoring and assignment rules"):
     st.markdown(
