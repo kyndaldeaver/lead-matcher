@@ -305,6 +305,7 @@ st.success(
     f"{len(final_roster):,} sales reps."
 )
 
+
 assigned_mask = (
     matched["Assigned_Rep_ID"]
     .fillna("")
@@ -412,28 +413,11 @@ with results_tab:
         st.caption(
             f"Showing {len(filtered):,} of {len(matched):,} leads."
         )
-
-        # Keep the tracker compact and show complete lead information
-        # after a lead is selected.
-        lead_preview = filtered[["Lead_ID", "Company_Name"]].copy()
         st.dataframe(
-            lead_preview,
+            filtered,
             use_container_width=True,
             hide_index=True,
         )
-        if not lead_preview.empty:
-            lead_options = lead_preview["Lead_ID"].astype(str).tolist()
-            selected_lead_id = st.selectbox(
-                "Select a lead to see its full details",
-                lead_options,
-                key="lead_details_selector",
-            )
-            selected_lead = filtered.loc[
-                filtered["Lead_ID"].astype(str) == selected_lead_id
-            ]
-            if not selected_lead.empty:
-                with st.expander("Selected lead details"):
-                    st.json(selected_lead.iloc[0].to_dict())
 
     displayed_assigned = int(
         filtered["Assigned_Rep_ID"]
@@ -499,8 +483,8 @@ with results_tab:
                 use_container_width=True,
             )
 
-        # Count assigned leads in the filtered results and include every rep,
-        # including reps with no displayed leads.
+        # Count leads for the current filters, then include every rep
+        # so those with zero displayed leads also appear in the list.
         rep_lead_counts = (
             filtered.loc[
                 filtered["Assigned_Rep_ID"]
@@ -530,7 +514,7 @@ with results_tab:
             .astype(int)
         )
         rep_summary = (
-            rep_summary[["Rep_ID", "Name", "Assigned Leads"]]
+            rep_summary[["Name", "Assigned Leads"]]
             .sort_values(
                 ["Assigned Leads", "Name"],
                 ascending=[False, True],
@@ -541,35 +525,10 @@ with results_tab:
 
         st.subheader("Leads by Sales Rep")
         st.dataframe(
-            rep_summary[["Rep_ID", "Name"]],
+            rep_summary,
             use_container_width=True,
             hide_index=True,
         )
-        if not rep_summary.empty:
-            rep_options = {
-                f"{row.Name} (ID: {row.Rep_ID})": str(row.Rep_ID)
-                for row in rep_summary.itertuples(index=False)
-            }
-            selected_rep_label = st.selectbox(
-                "Select a rep to see lead count and full details",
-                list(rep_options),
-                key="rep_details_selector",
-            )
-            selected_rep_id = rep_options[selected_rep_label]
-            selected_rep = final_roster.loc[
-                final_roster["Rep_ID"].astype(str) == selected_rep_id
-            ]
-            selected_rep_count = rep_summary.loc[
-                rep_summary["Rep_ID"].astype(str) == selected_rep_id,
-                "Assigned Leads",
-            ]
-            if not selected_rep.empty:
-                rep_details = selected_rep.iloc[0].to_dict()
-                rep_details["Assigned Leads (current filters)"] = int(
-                    selected_rep_count.iloc[0]
-                )
-                with st.expander("Selected rep details"):
-                    st.json(rep_details)
 
     st.download_button(
         "Download displayed leads and assignments",
