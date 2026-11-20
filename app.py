@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from typing import Any
 
@@ -9,181 +10,269 @@ import streamlit as st
 
 st.set_page_config(page_title="Lead Matcher", page_icon="🎯", layout="wide")
 
+LEAD_REQUIRED = {
+    "Lead_ID", "Company_Name", "Region", "Language", "Industry_Vertical",
+    "Company_Size", "Recent_Activity", "VIP_Referral",
+}
+REP_REQUIRED = {
+    "Rep_ID", "Name", "Region", "Language", "Industry_Vertical_Expertise",
+    "Current_Capacity", "Max_Capacity",
+}
+
+REGION_ALIASES = {
+    "asa-pacific": "asia pacific", "asia-pacific": "asia pacific",
+    "asia.pacific": "asia pacific", "asiapacific": "asia pacific",
+    "apac": "asia pacific", "europ": "europe", "europe": "europe",
+    "eur": "europe", "asiapacificeurope": "asia pacific and europe",
+    "northamerica": "north america", "nortamer": "north america",
+    "nortamerica": "north america", "northamer": "north america",
+    "northamericaasia-pacific": "north america and asia pacific",
+    "northamericaasiapacific": "north america and asia pacific",
+}
+LANGUAGE_ALIASES = {
+    "es": "spanish", "spanish": "spanish", "english": "english", "en": "english",
+    "german": "german", "de": "german",
+}
+ACTIVITY_ALIASES = {
+    "n/a": "N/A", "unknown": "Unknown", "subscribed": "Subscribed To Blog",
+    "downloadedwhitepaper": "Downloaded Whitepaper",
+    "requestedlivedemo": "Requested Live Demo",
+    "openedmarketingemail": "Opened Marketing Email", "contactsales": "Contact Sales",
+    "visitedpricingpage": "Visited Pricing Page", "startedfreetrial": "Started Free Trial",
+    "attendedwebinar": "Attended Webinar", "subscribedtoblog": "Subscribed To Blog",
+    "": "Unknown", "nan": "Unknown", "none": "Unknown",
+}
+ACTIVITY_POINTS = {
+    "Requested Live Demo": 35, "Contact Sales": 35,
+    "Attended Webinar": 25, "Started Free Trial": 25,
+    "Downloaded Whitepaper": 15, "Visited Pricing Page": 10,
+    "Subscribed To Blog": 5,
+}
+
+
+def clean_text(value: Any) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip().lower()
+
+
+def clean_region(value: Any) -> str:
+    raw = clean_text(value)
+    key = "".join(raw.split())
+    if not key:
+        return "N/A"
+    return REGION_ALIASES.get(key, raw)
+
+
+def clean_language(value: Any) -> str:
+    raw = clean_text(value)
+    return LANGUAGE_ALIASES.get(raw, "N/A") if raw else "N/A"
+
+
+def clean_activity(value: Any) -> str:
+    raw = clean_text(value)
+    key = "".join(raw.split())
+    if key in ACTIVITY_ALIASES:
+        return ACTIVITY_ALIASES[key]
+    return raw.title() if raw else "Unknown"
+
+
+def company_size(value: Any) -> float | None:
+    if pd.isna(value):
+        return None
+    raw = clean_text(value).replace(",", "")
+    if raw in {"", "n/a", "na", "none", "nan", "unknown"}:
+        return None
+    try:
+        multiplier = 1000 if raw.endswith("k") else 1
+        return float(raw[:-1] if multiplier == 1000 else raw) * multiplier
+    except ValueError:
+        return None
+
+
+def normalize_leads(frame: pd.DataFrame) -> pd.DataFrame:
+    data = frame.copy()
+    data["Region"] = data["Region"].map(clean_region)
+    data["Language"] = data["Language"].map(clean_language)
+    data["Industry_Vertical"] = data["Industry_Vertical"].map(
+        lambda value: clean_text(value) or "unknown"
+    )
+    data["Company_Size"] = data["Company_Size"].map(company_size)
+    data["Recent_Activity"] = data["Recent_Activity"].map(clean_activity)
+    data["VIP_Referral"] = data["VIP_Referral"].map(
+        lambda value: clean_text(value) if clean_text(value) in {"true", "false", "unknown"} else "unknown"
+    )
+    return data
+
+
+def normalize_reps(frame: pd.DataFrame) -> pd.DataFrame:
+    data = frame.copy()
+    data["Name"] = data["Name"].map(
+        lambda value: re.split(r"\s*\(", str(value), maxsplit=1)[0].strip() if pd.notna(value) else ""
+    )
+    data["Region"] = data["Region"].map(clean_region)
+    data["Language"] = data["Language"].map(clean_language)
+    data["Industry_Vertical_Expertise"] = data["Industry_Vertical_Expertise"].map(
+        lambda value: clean_text(value) or "unknown"
+    )
+    for column in ("Current_Capacity", "Max_Capacity"):
+        data[column] = pd.to_numeric(data[column], errors="coerce").fillna(0).clip(lower=0)
+    return data
+
+
+def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
+    data = leads.copy()
+
+    def score_one(lead: pd.Series) -> int:
+        if lead["VIP_Referral"] == "true":
+            return 100
+        score = 20 if pd.isna(lead["Company_Size"]) else (
+            50 if lead["Company_Size"] >= 1000 else 30 if lead["Company_Size"] >= 100 else 0
+        )
+        score += ACTIVITY_POINTS.get(lead["Recent_Activity"], 0)
+        vertical = lead["Industry_Vertical"]
+        score += 15 if vertical == "technology" else 10 if vertical in {"healthcare", "finance"} else 0
+        return score
+
+    data["Score"] = data.apply(score_one, axis=1)
+    data["Priority"] = pd.cut(
+        data["Score"], bins=[-1, 39, 59, 84, 100],
+        labels=["low", "medium", "high", "critical"],
+    ).astype("string")
+    # VIP referrals always receive critical priority, including when score ties at 100.
+    data.loc[data["VIP_Referral"] == "true", "Priority"] = "critical"
+    return data.sort_values("Score", ascending=False, kind="stable").reset_index(drop=True)
+
+
+def capacity_ratio(rep: pd.Series) -> float:
+    maximum = float(rep["Max_Capacity"])
+    current = float(rep["Current_Capacity"])
+    if maximum <= 0:
+        return 1.0
+    return min(current / maximum, 1.0)
+
+
+def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Assign top-priority leads to the best available rep; prefer expertise and fit."""
+    ranked = score_leads(leads)
+    roster = reps.copy().reset_index(drop=True)
+    assignments: list[dict[str, Any]] = []
+
+    for _, lead in ranked.iterrows():
+        candidates: list[tuple[tuple[float, ...], int, list[str]]] = []
+        for rep_index, rep in roster.iterrows():
+            max_capacity = float(rep["Max_Capacity"])
+            current_capacity = float(rep["Current_Capacity"])
+            if max_capacity <= 0 or current_capacity >= max_capacity:
+                continue
+            matched: list[str] = []
+            for lead_col, rep_col, label in (
+                ("Region", "Region", "region"),
+                ("Language", "Language", "language"),
+                ("Industry_Vertical", "Industry_Vertical_Expertise", "industry"),
+            ):
+                lead_value, rep_value = str(lead[lead_col]).lower(), str(rep[rep_col]).lower()
+                if lead_value not in {"n/a", "unknown", ""} and rep_value not in {"n/a", "unknown", ""} and lead_value == rep_value:
+                    matched.append(label)
+            # Rank by the number of matching attributes, then lower utilization;
+            # stable final tie-break makes results reproducible.
+            candidates.append(((float(len(matched)), -capacity_ratio(rep), -current_capacity), rep_index, matched))
+
+        if candidates:
+            _, chosen_index, matched_fields = max(candidates, key=lambda item: (item[0], -item[1]))
+            chosen = roster.loc[chosen_index]
+            roster.at[chosen_index, "Current_Capacity"] = float(chosen["Current_Capacity"]) + 1
+            assignments.append({
+                "Assigned_Rep_ID": chosen["Rep_ID"],
+                "Assigned_Rep": chosen["Name"],
+                "Rep_Match": ", ".join(matched_fields) if matched_fields else "No exact attribute match",
+                "Rep_Capacity_Status": "Assigned within capacity",
+            })
+        else:
+            assignments.append({
+                "Assigned_Rep_ID": "", "Assigned_Rep": "", "Rep_Match": "",
+                "Rep_Capacity_Status": "No rep capacity available",
+            })
+
+    result = pd.concat([ranked, pd.DataFrame(assignments)], axis=1)
+    return result, roster
+
+
+def csv_bytes(frame: pd.DataFrame) -> bytes:
+    return frame.to_csv(index=False).encode("utf-8-sig")
+
+
 st.title("🎯 Lead Matcher")
-st.markdown(
-    "Upload a lead list, describe what a good-fit prospect looks like, and get a ranked, "
-    "downloadable shortlist. Your data is processed in this app session."
-)
-
-
-def as_display(value: Any) -> str:
-    """Make categories selectable even when a column contains mixed value types."""
-    return str(value)
-
-
-def numeric_score(values: pd.Series, low: float, high: float) -> pd.Series:
-    """Score values from 0 to 100 by closeness to the selected target interval."""
-    numbers = pd.to_numeric(values, errors="coerce")
-    if low > high:
-        low, high = high, low
-    result = pd.Series(0.0, index=values.index)
-    inside = numbers.between(low, high)
-    result.loc[inside] = 100.0
-    below = numbers < low
-    above = numbers > high
-    if below.any():
-        distance = (low - numbers.loc[below]).abs()
-        scale = max(abs(high - low), abs(low), 1.0)
-        result.loc[below] = (100.0 * (1.0 - distance / scale)).clip(0, 100)
-    if above.any():
-        distance = (numbers.loc[above] - high).abs()
-        scale = max(abs(high - low), abs(high), 1.0)
-        result.loc[above] = (100.0 * (1.0 - distance / scale)).clip(0, 100)
-    return result.fillna(0.0)
-
-
-def make_csv(data: pd.DataFrame) -> bytes:
-    return data.to_csv(index=False).encode("utf-8-sig")
-
+st.write("Upload lead and sales-representative CSV files to clean, prioritize, and assign leads.")
 
 with st.sidebar:
-    st.header("1. Upload leads")
-    uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
-    st.caption("Tip: include a header row and one lead per row.")
+    st.header("Upload files")
+    lead_file = st.file_uploader("Leads CSV", type=["csv"], key="leads")
+    rep_file = st.file_uploader("Sales reps CSV", type=["csv"], key="reps")
+    st.caption("Upload separate CSV files with header rows. See README for required columns.")
 
-if uploaded is None:
-    st.info("Start by uploading a CSV file of leads.")
-    with st.expander("What columns can I use?"):
-        st.write(
-            "Any columns are supported. For example: company, contact, industry, "
-            "location, employee_count, annual_revenue, or technology. Choose the fields "
-            "that matter and set a target for each one after uploading."
-        )
+if not lead_file or not rep_file:
+    st.info("Upload both CSV files to start matching.")
     st.stop()
 
 try:
-    leads = pd.read_csv(uploaded)
+    raw_leads = pd.read_csv(lead_file)
+    raw_reps = pd.read_csv(rep_file)
 except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
-    st.error(f"Could not read this CSV: {exc}")
+    st.error(f"Could not read one of the CSV files: {exc}")
     st.stop()
 
-if leads.empty:
-    st.error("This CSV has headers but no lead rows.")
+missing_leads = sorted(LEAD_REQUIRED - set(raw_leads.columns))
+missing_reps = sorted(REP_REQUIRED - set(raw_reps.columns))
+if missing_leads or missing_reps:
+    if missing_leads:
+        st.error("Leads CSV is missing required columns: " + ", ".join(missing_leads))
+    if missing_reps:
+        st.error("Sales reps CSV is missing required columns: " + ", ".join(missing_reps))
     st.stop()
-if len(leads.columns) == 0:
-    st.error("No columns were found. Check that the CSV has a header row.")
-    st.stop()
-
-# Normalize column labels to strings for consistent widgets and export.
-leads.columns = [str(column) for column in leads.columns]
-leads = leads.loc[:, ~leads.columns.duplicated()]
-
-st.success(f"Loaded {len(leads):,} leads across {len(leads.columns)} columns.")
-with st.expander("Preview uploaded data", expanded=False):
-    st.dataframe(leads.head(10), use_container_width=True, hide_index=True)
-
-st.header("2. Define your ideal lead")
-all_columns = list(leads.columns)
-selected = st.multiselect(
-    "Which columns should influence the match score?",
-    options=all_columns,
-    default=all_columns[: min(3, len(all_columns))],
-    help="Contact details and identifiers need not be selected unless they help qualify a lead.",
-)
-
-if not selected:
-    st.warning("Select at least one column to calculate match scores.")
+if raw_leads.empty or raw_reps.empty:
+    st.error("Both files must contain at least one data row.")
     st.stop()
 
-settings: dict[str, dict[str, Any]] = {}
-for index, column in enumerate(selected):
-    series = leads[column]
-    non_empty = series.dropna()
-    numeric = pd.to_numeric(non_empty, errors="coerce")
-    is_numeric = len(non_empty) > 0 and numeric.notna().mean() >= 0.8
-    with st.expander(f"{column} — {'numeric' if is_numeric else 'category'}", expanded=index == 0):
-        weight = st.slider(
-            f"Importance of {column}", 1, 10, 5, key=f"weight_{index}",
-            help="Higher importance gives this field more influence on the final score.",
-        )
-        if is_numeric:
-            vals = numeric.dropna()
-            minimum, maximum = float(vals.min()), float(vals.max())
-            if minimum == maximum:
-                st.caption(f"All available values are {minimum:g}.")
-                low, high = minimum, maximum
-            else:
-                low, high = st.slider(
-                    f"Ideal {column} range", min_value=minimum, max_value=maximum,
-                    value=(minimum, maximum), key=f"range_{index}",
-                    help="Values inside this range score 100%; values farther away score lower.",
-                )
-            settings[column] = {"kind": "numeric", "weight": weight, "low": low, "high": high}
-        else:
-            categories = sorted({as_display(value) for value in non_empty})
-            if not categories:
-                st.caption("This column has no values to match.")
-                preferred: list[str] = []
-            else:
-                preferred = st.multiselect(
-                    f"Preferred {column} values", options=categories, default=categories,
-                    key=f"categories_{index}",
-                    help="Selected values score 100%. Unselected values score 0%.",
-                )
-            settings[column] = {"kind": "category", "weight": weight, "preferred": preferred}
+leads_clean = normalize_leads(raw_leads)
+reps_clean = normalize_reps(raw_reps)
+matched, final_roster = match_and_assign(leads_clean, reps_clean)
 
-st.header("3. Ranked matches")
-scored = leads.copy()
-weighted_total = pd.Series(0.0, index=scored.index)
-weight_total = 0
-score_columns: dict[str, str] = {}
+st.success(f"Processed {len(matched):,} leads and {len(final_roster):,} sales reps.")
+with st.expander("Preview cleaned inputs"):
+    st.subheader("Leads")
+    st.dataframe(leads_clean.head(10), use_container_width=True, hide_index=True)
+    st.subheader("Sales reps")
+    st.dataframe(reps_clean.head(10), use_container_width=True, hide_index=True)
 
-for index, (column, config) in enumerate(settings.items()):
-    if config["kind"] == "numeric":
-        component = numeric_score(scored[column], config["low"], config["high"])
-    else:
-        preferred = set(config["preferred"])
-        component = scored[column].map(
-            lambda value: 100.0 if pd.notna(value) and as_display(value) in preferred else 0.0
-        )
-    score_name = f"{column} match"
-    # Avoid collisions with source columns or other generated columns.
-    while score_name in scored.columns:
-        score_name = f"{score_name}_"
-    scored[score_name] = component.round(1)
-    score_columns[column] = score_name
-    weighted_total += component * config["weight"]
-    weight_total += config["weight"]
+assigned = matched["Assigned_Rep_ID"].ne("")
+critical = matched["Priority"].eq("critical").sum()
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Leads", f"{len(matched):,}")
+col2.metric("Critical priority", f"{critical:,}")
+col3.metric("Assigned", f"{assigned.sum():,}")
+col4.metric("Unassigned", f"{(~assigned).sum():,}")
 
-scored["Match score"] = (weighted_total / weight_total).round(1) if weight_total else 0.0
-scored["Match tier"] = pd.cut(
-    scored["Match score"], bins=[-1, 39.9, 69.9, 100],
-    labels=["Low", "Good", "Excellent"],
-).astype("string")
-scored = scored.sort_values("Match score", ascending=False, kind="stable")
-
-first, second, third = st.columns(3)
-first.metric("Leads scored", f"{len(scored):,}")
-second.metric("Excellent matches", f"{(scored['Match tier'] == 'Excellent').sum():,}")
-third.metric("Average score", f"{scored['Match score'].mean():.1f} / 100")
-
-minimum_score = st.slider("Minimum match score", 0, 100, 0)
-shortlist = scored.loc[scored["Match score"] >= minimum_score]
-st.caption(f"Showing {len(shortlist):,} of {len(scored):,} leads, ranked by match score.")
-st.dataframe(shortlist, use_container_width=True, hide_index=True)
-
+st.subheader("Ranked leads and assignments")
+st.caption("Leads are prioritized by your scoring rules. Each lead is assigned to an available rep with the strongest region, language, and industry fit, then lower capacity utilization.")
+st.dataframe(matched, use_container_width=True, hide_index=True)
 st.download_button(
-    "⬇️ Download ranked leads as CSV",
-    data=make_csv(shortlist),
-    file_name="ranked_leads.csv",
+    "Download ranked leads and assignments",
+    data=csv_bytes(matched), file_name="ranked_leads_with_assignments.csv",
     mime="text/csv",
-    use_container_width=True,
+)
+st.download_button(
+    "Download updated rep capacities",
+    data=csv_bytes(final_roster), file_name="sales_reps_updated_capacity.csv",
+    mime="text/csv",
 )
 
-with st.expander("How scoring works"):
+with st.expander("Scoring and assignment rules"):
     st.markdown(
-        "- A categorical field scores **100** when its value is selected as preferred, otherwise **0**.\n"
-        "- A numeric field scores **100** inside the ideal range and decreases with distance outside it.\n"
-        "- The overall score is the weighted average of the selected field scores.\n"
-        "- Match tiers are **Excellent** (70–100), **Good** (40–69.9), and **Low** (below 40)."
+        "- VIP referrals score **100** and are always **critical**.\n"
+        "- Company size: **50** points for 1,000+, **30** for 100–999, **0** below 100, or **20** when missing.\n"
+        "- Recent activity: demo/contact sales **35**, webinar/trial **25**, whitepaper **15**, pricing page **10**, blog subscription **5**.\n"
+        "- Industry: technology **15**, healthcare/finance **10**.\n"
+        "- Other priority bands: high **60–84**, medium **40–59**, low **0–39**.\n"
+        "- Rep assignment is a recommendation: exact region, language, and industry matches rank first; ties prefer lower capacity utilization. Each rep is assigned no more than their positive Max_Capacity."
     )
