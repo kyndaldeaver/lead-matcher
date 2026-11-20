@@ -166,7 +166,8 @@ def capacity_ratio(rep: pd.Series) -> float:
 
 
 def match_and_assign(
-    leads: pd.DataFrame, reps: pd.DataFrame
+    leads: pd.DataFrame,
+    reps: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     ranked = score_leads(leads)
     roster = reps.copy().reset_index(drop=True)
@@ -174,6 +175,7 @@ def match_and_assign(
 
     for _, lead in ranked.iterrows():
         candidates: list[tuple[tuple[float, float, float], int, list[str]]] = []
+
         for rep_index, rep in roster.iterrows():
             max_capacity = float(rep["Max_Capacity"])
             current_capacity = float(rep["Current_Capacity"])
@@ -195,21 +197,20 @@ def match_and_assign(
                 ):
                     matched.append(label)
 
-            candidates.append(
+            candidates.append((
                 (
-                    (
-                        float(len(matched)),
-                        -capacity_ratio(rep),
-                        -current_capacity,
-                    ),
-                    rep_index,
-                    matched,
-                )
-            )
+                    float(len(matched)),
+                    -capacity_ratio(rep),
+                    -current_capacity,
+                ),
+                rep_index,
+                matched,
+            ))
 
         if candidates:
             _, chosen_index, matched_fields = max(
-                candidates, key=lambda item: (item[0], -item[1])
+                candidates,
+                key=lambda item: (item[0], -item[1]),
             )
             chosen = roster.loc[chosen_index]
             roster.at[chosen_index, "Current_Capacity"] = (
@@ -279,6 +280,7 @@ except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
 
 missing_leads = sorted(LEAD_REQUIRED - set(raw_leads.columns))
 missing_reps = sorted(REP_REQUIRED - set(raw_reps.columns))
+
 if missing_leads or missing_reps:
     if missing_leads:
         st.error(
@@ -338,7 +340,8 @@ with results_tab:
                 matched["Language"].fillna("N/A").astype(str).unique()
             )
             language_filter = st.selectbox(
-                "Language", ["All"] + languages
+                "Language",
+                ["All"] + languages,
             )
 
         with filter2:
@@ -349,30 +352,37 @@ with results_tab:
                 .unique()
             )
             industry_filter = st.selectbox(
-                "Industry", ["All"] + industries
+                "Industry",
+                ["All"] + industries,
             )
 
         with filter3:
             size_groups = matched["Company_Size"].map(company_size_group)
             size_options = ["Under 100", "100–999", "1,000+", "Missing"]
             available_sizes = [
-                size for size in size_options if size in size_groups.values
+                size
+                for size in size_options
+                if size in size_groups.values
             ]
             size_filter = st.selectbox(
-                "Company size", ["All"] + available_sizes
+                "Company size",
+                ["All"] + available_sizes,
             )
 
         filtered = matched.copy()
+
         if language_filter != "All":
             filtered = filtered[
                 filtered["Language"].fillna("N/A").astype(str)
                 == language_filter
             ]
+
         if industry_filter != "All":
             filtered = filtered[
                 filtered["Industry_Vertical"].fillna("unknown").astype(str)
                 == industry_filter
             ]
+
         if size_filter != "All":
             filtered = filtered[
                 filtered["Company_Size"].map(company_size_group)
@@ -383,6 +393,7 @@ with results_tab:
             "Sort by",
             ["Priority score", "Language", "Industry", "Company size"],
         )
+
         if sort_by == "Company size":
             filtered = filtered.sort_values(
                 "Company_Size",
@@ -413,24 +424,40 @@ with results_tab:
             f"Showing {len(filtered):,} of {len(matched):,} leads."
         )
 
-        # Keep the tracker compact and show complete lead information
-        # after a lead is selected.
-        lead_preview = filtered[["Lead_ID", "Company_Name"]].copy()
+        lead_preview = filtered[
+            [
+                "Lead_ID",
+                "Company_Name",
+                "Assigned_Rep_ID",
+                "Assigned_Rep",
+            ]
+        ].copy()
+
+        lead_preview.columns = [
+            "Lead ID",
+            "Company Name",
+            "Assigned Rep ID",
+            "Assigned Rep",
+        ]
+
         st.dataframe(
             lead_preview,
             use_container_width=True,
             hide_index=True,
         )
+
         if not lead_preview.empty:
-            lead_options = lead_preview["Lead_ID"].astype(str).tolist()
+            lead_options = lead_preview["Lead ID"].astype(str).tolist()
             selected_lead_id = st.selectbox(
                 "Select a lead to see its full details",
                 lead_options,
                 key="lead_details_selector",
             )
+
             selected_lead = filtered.loc[
                 filtered["Lead_ID"].astype(str) == selected_lead_id
             ]
+
             if not selected_lead.empty:
                 with st.expander("Selected lead details"):
                     st.json(selected_lead.iloc[0].to_dict())
@@ -443,6 +470,7 @@ with results_tab:
         .ne("")
         .sum()
     )
+
     assignment_chart = pd.DataFrame({
         "Assignment status": ["Assigned", "Unassigned"],
         "Leads": [
@@ -457,6 +485,7 @@ with results_tab:
             "Assigned vs. Unassigned Leads</h3>",
             unsafe_allow_html=True,
         )
+
         chart_left, chart_center, chart_right = st.columns([1, 4, 1])
 
         with chart_center:
@@ -499,8 +528,6 @@ with results_tab:
                 use_container_width=True,
             )
 
-        # Count assigned leads in the filtered results and include every rep,
-        # including reps with no displayed leads.
         rep_lead_counts = (
             filtered.loc[
                 filtered["Assigned_Rep_ID"]
@@ -545,17 +572,20 @@ with results_tab:
             use_container_width=True,
             hide_index=True,
         )
+
         if not rep_summary.empty:
             rep_options = {
                 f"{row.Name} (ID: {row.Rep_ID})": str(row.Rep_ID)
                 for row in rep_summary.itertuples(index=False)
             }
+
             selected_rep_label = st.selectbox(
                 "Select a rep to see lead count and full details",
                 list(rep_options),
                 key="rep_details_selector",
             )
             selected_rep_id = rep_options[selected_rep_label]
+
             selected_rep = final_roster.loc[
                 final_roster["Rep_ID"].astype(str) == selected_rep_id
             ]
@@ -563,6 +593,7 @@ with results_tab:
                 rep_summary["Rep_ID"].astype(str) == selected_rep_id,
                 "Assigned Leads",
             ]
+
             if not selected_rep.empty:
                 rep_details = selected_rep.iloc[0].to_dict()
                 rep_details["Assigned Leads (current filters)"] = int(
@@ -578,6 +609,7 @@ with results_tab:
         mime="text/csv",
         key="download_filtered_leads",
     )
+
     st.download_button(
         "Download updated rep capacities",
         data=csv_bytes(final_roster),
