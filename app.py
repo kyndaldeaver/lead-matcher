@@ -305,19 +305,6 @@ st.success(
     f"{len(final_roster):,} sales reps."
 )
 
-with st.expander("Preview cleaned inputs"):
-    st.subheader("Leads")
-    st.dataframe(
-        leads_clean.head(10),
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.subheader("Sales reps")
-    st.dataframe(
-        reps_clean.head(10),
-        use_container_width=True,
-        hide_index=True,
-    )
 
 assigned_mask = (
     matched["Assigned_Rep_ID"]
