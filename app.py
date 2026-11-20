@@ -325,27 +325,32 @@ with results_tab:
         "Leads": [displayed_assigned, len(filtered) - displayed_assigned],
     })
     with chart_col:
-        st.subheader("Assigned vs. unassigned leads")
-        st.vega_lite_chart(
-            assignment_chart,
-            {
-                "mark": {"type": "arc", "outerRadius": 120},
-                "encoding": {
-                    "theta": {"field": "Leads", "type": "quantitative"},
-                    "color": {
-                        "field": "Assignment status",
-                        "type": "nominal",
-                        "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
+        st.markdown("<h3 style='text-align: center;'>Assigned vs. unassigned leads</h3>", unsafe_allow_html=True)
+        chart_left, chart_center, chart_right = st.columns([1, 4, 1])
+        with chart_center:
+            st.vega_lite_chart(
+                assignment_chart,
+                {
+                    "width": 260,
+                    "height": 300,
+                    "mark": {"type": "arc", "outerRadius": 105},
+                    "encoding": {
+                        "theta": {"field": "Leads", "type": "quantitative"},
+                        "color": {
+                            "field": "Assignment status",
+                            "type": "nominal",
+                            "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
+                            "legend": {"orient": "bottom", "title": None},
+                        },
+                        "tooltip": [
+                            {"field": "Assignment status", "type": "nominal"},
+                            {"field": "Leads", "type": "quantitative"},
+                        ],
                     },
-                    "tooltip": [
-                        {"field": "Assignment status", "type": "nominal"},
-                        {"field": "Leads", "type": "quantitative"},
-                    ],
+                    "view": {"stroke": None},
                 },
-                "view": {"stroke": None},
-            },
-            use_container_width=True,
-        )
+                use_container_width=True,
+            )
 
     st.download_button(
         "Download displayed leads and assignments",
