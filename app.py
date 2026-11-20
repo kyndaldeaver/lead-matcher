@@ -139,6 +139,7 @@ def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
         data["Score"], bins=[-1, 39, 59, 84, 100],
         labels=["low", "medium", "high", "critical"],
     ).astype("string")
+    # VIP referrals always receive critical priority, including when score ties at 100.
     data.loc[data["VIP_Referral"] == "true", "Priority"] = "critical"
     return data.sort_values("Score", ascending=False, kind="stable").reset_index(drop=True)
 
@@ -152,12 +153,13 @@ def capacity_ratio(rep: pd.Series) -> float:
 
 
 def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Assign top-priority leads to the best available rep; prefer expertise and fit."""
     ranked = score_leads(leads)
     roster = reps.copy().reset_index(drop=True)
     assignments: list[dict[str, Any]] = []
 
     for _, lead in ranked.iterrows():
-        candidates: list[tuple[tuple[float, float, float], int, list[str]]] = []
+        candidates: list[tuple[tuple[float, ...], int, list[str]]] = []
         for rep_index, rep in roster.iterrows():
             max_capacity = float(rep["Max_Capacity"])
             current_capacity = float(rep["Current_Capacity"])
@@ -172,11 +174,12 @@ def match_and_assign(leads: pd.DataFrame, reps: pd.DataFrame) -> tuple[pd.DataFr
                 lead_value, rep_value = str(lead[lead_col]).lower(), str(rep[rep_col]).lower()
                 if lead_value not in {"n/a", "unknown", ""} and rep_value not in {"n/a", "unknown", ""} and lead_value == rep_value:
                     matched.append(label)
+            # Rank by the number of matching attributes, then lower utilization;
+            # stable final tie-break makes results reproducible.
             candidates.append(((float(len(matched)), -capacity_ratio(rep), -current_capacity), rep_index, matched))
 
         if candidates:
-            chosen_tuple = max(candidates, key=lambda item: item[0])
-            _, chosen_index, matched_fields = chosen_tuple
+            _, chosen_index, matched_fields = max(candidates, key=lambda item: (item[0], -item[1]))
             chosen = roster.loc[chosen_index]
             roster.at[chosen_index, "Current_Capacity"] = float(chosen["Current_Capacity"]) + 1
             assignments.append({
@@ -242,45 +245,13 @@ with st.expander("Preview cleaned inputs"):
     st.subheader("Sales reps")
     st.dataframe(reps_clean.head(10), use_container_width=True, hide_index=True)
 
-# Split leads based on whether an Assigned Rep ID is present.
-assigned_mask = matched["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("")
-assigned_count = int(assigned_mask.sum())
-unassigned_count = int((~assigned_mask).sum())
+assigned = matched["Assigned_Rep_ID"].ne("")
 critical = matched["Priority"].eq("critical").sum()
-
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Leads", f"{len(matched):,}")
 col2.metric("Critical priority", f"{critical:,}")
-col3.metric("Assigned", f"{assigned_count:,}")
-col4.metric("Unassigned", f"{unassigned_count:,}")
-
-st.subheader("Lead assignment distribution")
-chart_col, detail_col = st.columns([1.2, 1])
-
-with chart_col:
-    assignment_counts = pd.DataFrame({
-        "Status": ["Assigned", "Unassigned"],
-        "Leads": [assigned_count, unassigned_count],
-    })
-    chart_data = assignment_counts.set_index("Status")
-
-    if assigned_count + unassigned_count > 0:
-        st.pyplot(
-            chart_data["Leads"].plot.pie(
-                y="Leads",
-                autopct="%1.1f%%",
-                startangle=90,
-                colors=["#2E86AB", "#F28E2B"],
-                ylabel="",
-                legend=True,
-            ).figure
-        )
-    else:
-        st.info("No leads are available to chart.")
-
-with detail_col:
-    st.write("Assignment totals")
-    st.dataframe(assignment_counts, use_container_width=True, hide_index=True)
+col3.metric("Assigned", f"{assigned.sum():,}")
+col4.metric("Unassigned", f"{(~assigned).sum():,}")
 
 st.subheader("Ranked leads and assignments")
 st.caption("Leads are prioritized by your scoring rules. Each lead is assigned to an available rep with the strongest region, language, and industry fit, then lower capacity utilization.")
