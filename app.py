@@ -207,7 +207,7 @@ def company_size_group(value: Any) -> str:
     return "1,000+"
 
 
-st.title("🎯 Lead Matcher")
+st.title("Lead Matcher")
 st.write("Upload lead and sales-representative CSV files to clean, prioritize, and assign leads.")
 
 with st.sidebar:
