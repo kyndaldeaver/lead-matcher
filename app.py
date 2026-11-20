@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 
-st.set_page_config(page_title="Lead Matcher", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Lead Matcher", layout="wide")
 
 LEAD_REQUIRED = {
     "Lead_ID", "Company_Name", "Region", "Language", "Industry_Vertical",
@@ -207,7 +207,7 @@ def company_size_group(value: Any) -> str:
     return "1,000+"
 
 
-st.title("🎯 Lead Matcher")
+st.title("Lead Matcher")
 st.write("Upload lead and sales-representative CSV files to clean, prioritize, and assign leads.")
 
 with st.sidebar:
@@ -312,6 +312,35 @@ with results_tab:
         filtered = filtered.sort_values(
             sort_column, ascending=True, na_position="last", kind="stable"
         )
+
+    displayed_assigned = int(
+        filtered["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("").sum()
+    )
+    assignment_chart = pd.DataFrame({
+        "Assignment status": ["Assigned", "Unassigned"],
+        "Leads": [displayed_assigned, len(filtered) - displayed_assigned],
+    })
+    st.subheader("Assigned vs. unassigned leads")
+    st.vega_lite_chart(
+        assignment_chart,
+        {
+            "mark": {"type": "arc", "outerRadius": 120},
+            "encoding": {
+                "theta": {"field": "Leads", "type": "quantitative"},
+                "color": {
+                    "field": "Assignment status",
+                    "type": "nominal",
+                    "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
+                },
+                "tooltip": [
+                    {"field": "Assignment status", "type": "nominal"},
+                    {"field": "Leads", "type": "quantitative"},
+                ],
+            },
+            "view": {"stroke": None},
+        },
+        use_container_width=True,
+    )
 
     st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
     st.dataframe(filtered, use_container_width=True, hide_index=True)
