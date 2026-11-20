@@ -264,31 +264,58 @@ results_tab, queue_tab = st.tabs(["All leads", f"Assignment queue ({unassigned_c
 
 with results_tab:
     st.subheader("Filter and sort leads")
-    filter1, filter2, filter3 = st.columns(3)
+    tracker_col, chart_col = st.columns([2, 1])
 
-    with filter1:
-        languages = sorted(matched["Language"].fillna("N/A").astype(str).unique())
-        language_filter = st.selectbox("Language", ["All"] + languages)
+    with tracker_col:
+        filter1, filter2, filter3 = st.columns(3)
 
-    with filter2:
-        industries = sorted(matched["Industry_Vertical"].fillna("unknown").astype(str).unique())
-        industry_filter = st.selectbox("Industry", ["All"] + industries)
+        with filter1:
+            languages = sorted(matched["Language"].fillna("N/A").astype(str).unique())
+            language_filter = st.selectbox("Language", ["All"] + languages)
 
-    with filter3:
-        size_groups = matched["Company_Size"].map(company_size_group)
-        size_options = ["Under 100", "100–999", "1,000+", "Missing"]
-        available_sizes = [size for size in size_options if size in size_groups.values]
-        size_filter = st.selectbox("Company size", ["All"] + available_sizes)
+        with filter2:
+            industries = sorted(matched["Industry_Vertical"].fillna("unknown").astype(str).unique())
+            industry_filter = st.selectbox("Industry", ["All"] + industries)
 
-    filtered = matched.copy()
-    if language_filter != "All":
-        filtered = filtered[filtered["Language"].fillna("N/A").astype(str) == language_filter]
-    if industry_filter != "All":
-        filtered = filtered[
-            filtered["Industry_Vertical"].fillna("unknown").astype(str) == industry_filter
-        ]
-    if size_filter != "All":
-        filtered = filtered[filtered["Company_Size"].map(company_size_group) == size_filter]
+        with filter3:
+            size_groups = matched["Company_Size"].map(company_size_group)
+            size_options = ["Under 100", "100–999", "1,000+", "Missing"]
+            available_sizes = [size for size in size_options if size in size_groups.values]
+            size_filter = st.selectbox("Company size", ["All"] + available_sizes)
+
+        filtered = matched.copy()
+        if language_filter != "All":
+            filtered = filtered[filtered["Language"].fillna("N/A").astype(str) == language_filter]
+        if industry_filter != "All":
+            filtered = filtered[
+                filtered["Industry_Vertical"].fillna("unknown").astype(str) == industry_filter
+            ]
+        if size_filter != "All":
+            filtered = filtered[filtered["Company_Size"].map(company_size_group) == size_filter]
+
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Priority score", "Language", "Industry", "Company size"],
+        )
+        if sort_by == "Company size":
+            filtered = filtered.sort_values(
+                "Company_Size", ascending=False, na_position="last", kind="stable"
+            )
+        elif sort_by == "Priority score":
+            filtered = filtered.sort_values(
+                "Score", ascending=False, na_position="last", kind="stable"
+            )
+        else:
+            sort_column = {
+                "Language": "Language",
+                "Industry": "Industry_Vertical",
+            }[sort_by]
+            filtered = filtered.sort_values(
+                sort_column, ascending=True, na_position="last", kind="stable"
+            )
+
+        st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
+        st.dataframe(filtered, use_container_width=True, hide_index=True)
 
     displayed_assigned = int(
         filtered["Assigned_Rep_ID"].fillna("").astype(str).str.strip().ne("").sum()
@@ -297,51 +324,29 @@ with results_tab:
         "Assignment status": ["Assigned", "Unassigned"],
         "Leads": [displayed_assigned, len(filtered) - displayed_assigned],
     })
-    st.subheader("Assigned vs. unassigned leads")
-    st.vega_lite_chart(
-        assignment_chart,
-        {
-            "mark": {"type": "arc", "outerRadius": 120},
-            "encoding": {
-                "theta": {"field": "Leads", "type": "quantitative"},
-                "color": {
-                    "field": "Assignment status",
-                    "type": "nominal",
-                    "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
+    with chart_col:
+        st.subheader("Assigned vs. unassigned leads")
+        st.vega_lite_chart(
+            assignment_chart,
+            {
+                "mark": {"type": "arc", "outerRadius": 120},
+                "encoding": {
+                    "theta": {"field": "Leads", "type": "quantitative"},
+                    "color": {
+                        "field": "Assignment status",
+                        "type": "nominal",
+                        "scale": {"domain": ["Assigned", "Unassigned"], "range": ["#2E8B57", "#F4A261"]},
+                    },
+                    "tooltip": [
+                        {"field": "Assignment status", "type": "nominal"},
+                        {"field": "Leads", "type": "quantitative"},
+                    ],
                 },
-                "tooltip": [
-                    {"field": "Assignment status", "type": "nominal"},
-                    {"field": "Leads", "type": "quantitative"},
-                ],
+                "view": {"stroke": None},
             },
-            "view": {"stroke": None},
-        },
-        use_container_width=True,
-    )
-
-    sort_by = st.selectbox(
-        "Sort by",
-        ["Priority score", "Language", "Industry", "Company size"],
-    )
-    if sort_by == "Company size":
-        filtered = filtered.sort_values(
-            "Company_Size", ascending=False, na_position="last", kind="stable"
-        )
-    elif sort_by == "Priority score":
-        filtered = filtered.sort_values(
-            "Score", ascending=False, na_position="last", kind="stable"
-        )
-    else:
-        sort_column = {
-            "Language": "Language",
-            "Industry": "Industry_Vertical",
-        }[sort_by]
-        filtered = filtered.sort_values(
-            sort_column, ascending=True, na_position="last", kind="stable"
+            use_container_width=True,
         )
 
-    st.caption(f"Showing {len(filtered):,} of {len(matched):,} leads.")
-    st.dataframe(filtered, use_container_width=True, hide_index=True)
     st.download_button(
         "Download displayed leads and assignments",
         data=csv_bytes(filtered),
