@@ -135,7 +135,6 @@ def map_unique(series: pd.Series, func) -> pd.Series:
     return pd.Series(results[codes], index=series.index)
 
 
-@st.cache_data(show_spinner=False)
 def normalize_leads(frame: pd.DataFrame) -> pd.DataFrame:
     data = frame.copy()
 
@@ -161,7 +160,6 @@ def normalize_leads(frame: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
-@st.cache_data(show_spinner=False)
 def normalize_reps(frame: pd.DataFrame) -> pd.DataFrame:
     data = frame.copy()
 
@@ -399,17 +397,24 @@ if not lead_file or not rep_file:
     st.info("Upload both CSV files to start matching.")
     st.stop()
 
-@st.cache_data(show_spinner=False)
-def read_csv_cached(data: bytes) -> pd.DataFrame:
-    return pd.read_csv(io.BytesIO(data))
+def read_csv_fast(data: bytes) -> pd.DataFrame:
+    try:
+        return pd.read_csv(io.BytesIO(data), engine="pyarrow")
+    except Exception:
+        return pd.read_csv(io.BytesIO(data), low_memory=False)
+
+
+@st.cache_resource(show_spinner="Reading files...", max_entries=2)
+def load_raw(lead_bytes: bytes, rep_bytes: bytes):
+    # cache_resource returns the same objects without hashing/copying frames
+    return read_csv_fast(lead_bytes), read_csv_fast(rep_bytes)
 
 
 _t0 = time.perf_counter()
 _timings: dict[str, float] = {}
 
 try:
-    raw_leads = read_csv_cached(lead_file.getvalue())
-    raw_reps = read_csv_cached(rep_file.getvalue())
+    raw_leads, raw_reps = load_raw(lead_file.getvalue(), rep_file.getvalue())
 except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
     st.error(f"Could not read one of the CSV files: {exc}")
     st.stop()
@@ -438,19 +443,23 @@ if raw_leads.empty or raw_reps.empty:
     st.error("Both files must contain at least one data row.")
     st.stop()
 
-_t = time.perf_counter()
-leads_clean = normalize_leads(raw_leads)
-reps_clean = normalize_reps(raw_reps)
-_timings["Clean data"] = time.perf_counter() - _t
+@st.cache_resource(show_spinner="Cleaning, scoring and assigning leads...", max_entries=2)
+def run_pipeline(lead_bytes: bytes, rep_bytes: bytes):
+    leads_raw, reps_raw = load_raw(lead_bytes, rep_bytes)
+    t = time.perf_counter()
+    lc = normalize_leads(leads_raw)
+    rc = normalize_reps(reps_raw)
+    t_clean = time.perf_counter() - t
+    t = time.perf_counter()
+    m, r = match_and_assign(lc, rc)
+    return lc, rc, m, r, t_clean, time.perf_counter() - t
 
-_t = time.perf_counter()
-with st.spinner("Scoring and assigning leads..."):
-    matched, final_roster = match_and_assign_cached(
-        leads_clean,
-        reps_clean,
-    )
 
-_timings["Score and assign"] = time.perf_counter() - _t
+(
+    leads_clean, reps_clean, matched, final_roster, _t_clean, _t_assign,
+) = run_pipeline(lead_file.getvalue(), rep_file.getvalue())
+_timings["Clean data"] = _t_clean
+_timings["Score and assign"] = _t_assign
 st.caption(
     "Timings (s): "
     + ", ".join(f"{k} {v:.2f}" for k, v in _timings.items())
