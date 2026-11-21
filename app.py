@@ -348,9 +348,24 @@ def match_and_assign(
     return matched, roster
 
 
-@st.cache_data(show_spinner=False)
 def csv_bytes(frame: pd.DataFrame) -> bytes:
     return frame.to_csv(index=False).encode("utf-8-sig")
+
+
+def lazy_download(label: str, frame_fn, file_name: str, key: str) -> None:
+    """Build the CSV only when the user asks, not on every rerun."""
+    if st.session_state.get(f"ready_{key}"):
+        st.download_button(
+            label,
+            data=csv_bytes(frame_fn()),
+            file_name=file_name,
+            mime="text/csv",
+            key=key,
+        )
+    else:
+        if st.button(f"Prepare: {label}", key=f"prep_{key}"):
+            st.session_state[f"ready_{key}"] = True
+            st.rerun()
 
 
 def company_size_group(value: Any) -> str:
@@ -398,10 +413,7 @@ if not lead_file or not rep_file:
     st.stop()
 
 def read_csv_fast(data: bytes) -> pd.DataFrame:
-    try:
-        return pd.read_csv(io.BytesIO(data), engine="pyarrow")
-    except Exception:
-        return pd.read_csv(io.BytesIO(data), low_memory=False)
+    return pd.read_csv(io.BytesIO(data), low_memory=False)
 
 
 @st.cache_resource(show_spinner="Reading files...", max_entries=2)
@@ -786,20 +798,18 @@ with results_tab:
             height=260,
         )
 
-    st.download_button(
+    lazy_download(
         "Download all filtered leads and assignments",
-        data=csv_bytes(filtered),
-        file_name="leads_with_assignments.csv",
-        mime="text/csv",
-        key="download_filtered_leads",
+        lambda: filtered,
+        "leads_with_assignments.csv",
+        "download_filtered_leads",
     )
 
-    st.download_button(
+    lazy_download(
         "Download updated rep capacities",
-        data=csv_bytes(final_roster),
-        file_name="sales_reps_updated_capacity.csv",
-        mime="text/csv",
-        key="download_rep_capacities",
+        lambda: final_roster,
+        "sales_reps_updated_capacity.csv",
+        "download_rep_capacities",
     )
 
 with queue_tab:
@@ -870,12 +880,11 @@ with queue_tab:
             height=520,
         )
 
-        st.download_button(
+        lazy_download(
             "Download assignment queue",
-            data=csv_bytes(queue),
-            file_name="unassigned_lead_queue.csv",
-            mime="text/csv",
-            key="download_assignment_queue",
+            lambda: queue,
+            "unassigned_lead_queue.csv",
+            "download_assignment_queue",
         )
 
 with st.expander("Scoring and assignment rules"):
