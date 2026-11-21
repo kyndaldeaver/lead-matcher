@@ -781,7 +781,7 @@ def process_reps(file_bytes):
 # STREAMLIT INTERFACE
 # ============================================================
 
-st.title("📊 Lead Cleaning and Assignment System")
+st.title("Lead Cleaning and Assignment System")
 
 st.write(
     """
@@ -794,19 +794,6 @@ st.write(
 
 with st.sidebar:
     st.header("Assignment settings")
-
-    require_region = st.checkbox(
-        "Require region match",
-        value=True,
-        help="A lead will only be assigned to a representative "
-             "who supports the lead's region.",
-    )
-
-    require_language = st.checkbox(
-        "Require language match",
-        value=True,
-        help="A lead will only be assigned to a representative "
-             "who speaks the lead's language.",
     )
 
     st.divider()
