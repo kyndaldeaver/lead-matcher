@@ -794,21 +794,6 @@ st.write(
 
 with st.sidebar:
     st.header("Assignment settings")
-    
-
-    st.divider()
-
-    st.markdown(
-        """
-        **Lead score rules**
-
-        - VIP referral: 100 points
-        - Company size: up to 50 points
-        - Recent activity: up to 35 points
-        - Industry: up to 15 points
-        """
-    )
-
 
 upload_column_one, upload_column_two = st.columns(2)
 
@@ -893,12 +878,6 @@ if cleaned_leads is not None:
         f"{(cleaned_leads['Priority'] == 'medium').sum():,}",
     )
 
-    average_score = (
-        cleaned_leads["Score"].mean()
-        if not cleaned_leads.empty
-        else 0
-    )
-
     lead_metric_columns[4].metric(
         "Average score",
         f"{average_score:.1f}",
@@ -937,7 +916,7 @@ if cleaned_leads is not None:
         mime="text/csv",
     )
 
-
+results_tab, queue_tab = st.tabs(["All leads", f"Assignment queue ({unassigned_count})"])
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
