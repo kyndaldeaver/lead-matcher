@@ -570,18 +570,3 @@ with queue_tab:
             mime="text/csv",
             key="download_assignment_queue",
         )
-
-with st.expander("Scoring and assignment rules"):
-    st.markdown(
-        "- VIP referrals score **100** and are always **critical**.\n"
-        "- Company size: **50** points for 1,000+, **30** for 100–999, "
-        "**0** below 100, or **20** when missing.\n"
-        "- Recent activity: demo/contact sales **35**, webinar/trial **25**, "
-        "whitepaper **15**, pricing page **10**, blog subscription **5**.\n"
-        "- Industry: technology **15**, healthcare/finance **10**.\n"
-        "- Other priority bands: high **60–84**, medium **40–59**, "
-        "low **0–39**.\n"
-        "- Rep assignment is a recommendation: exact region, language, and "
-        "industry matches rank first; ties prefer lower capacity utilization. "
-        "Each rep is assigned no more than their positive Max_Capacity."
-    )
