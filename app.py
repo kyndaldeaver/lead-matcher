@@ -9,6 +9,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Lead Matcher", layout="wide")
 
+
 LEAD_REQUIRED = {
     "Lead_ID", "Company_Name", "Region", "Language", "Industry_Vertical",
     "Company_Size", "Recent_Activity", "VIP_Referral",
