@@ -44,10 +44,7 @@ REP_COLUMNS = {
 }
 
 
-# ============================================================
-# NORMALIZATION DICTIONARIES
-# ============================================================
-
+# Normalization dictionaryies
 REGION_MAP = {
     "asapacific": "asia pacific",
     "asiapacific": "asia pacific",
@@ -102,11 +99,7 @@ SENIORITY_MAP = {
     "junior": "junior",
 }
 
-
-# ============================================================
-# GENERAL HELPER FUNCTIONS
-# ============================================================
-
+# confirms that uploaded files that users provide have required information
 def require_columns(dataframe, required_columns, file_name):
     """Verify that an uploaded file contains all required columns."""
 
