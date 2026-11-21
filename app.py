@@ -916,7 +916,6 @@ if cleaned_leads is not None:
         mime="text/csv",
     )
 
-# results_tab, queue_tab = st.tabs(["All leads", f"Assignment queue ({unassigned_count})"])
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
