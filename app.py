@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from heapq import heappush, heappop
 from typing import Any
 
 import pandas as pd
@@ -12,24 +13,13 @@ st.set_page_config(page_title="Lead Matcher", layout="wide")
 TABLE_PAGE_SIZE = 500
 
 LEAD_REQUIRED = {
-    "Lead_ID",
-    "Company_Name",
-    "Region",
-    "Language",
-    "Industry_Vertical",
-    "Company_Size",
-    "Recent_Activity",
-    "VIP_Referral",
+    "Lead_ID", "Company_Name", "Region", "Language", "Industry_Vertical",
+    "Company_Size", "Recent_Activity", "VIP_Referral",
 }
 
 REP_REQUIRED = {
-    "Rep_ID",
-    "Name",
-    "Region",
-    "Language",
-    "Industry_Vertical_Expertise",
-    "Current_Capacity",
-    "Max_Capacity",
+    "Rep_ID", "Name", "Region", "Language", "Industry_Vertical_Expertise",
+    "Current_Capacity", "Max_Capacity",
 }
 
 REGION_ALIASES = {
@@ -185,31 +175,34 @@ def normalize_reps(frame: pd.DataFrame) -> pd.DataFrame:
 def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
     data = leads.copy()
 
-    def score_one(lead: pd.Series) -> int:
-        if lead["VIP_Referral"] == "true":
-            return 100
+    company_sizes = data["Company_Size"].to_numpy(dtype=float, na_value=0)
+    size_scores = pd.Series(company_sizes).map(
+        lambda size: 50 if size >= 1000 else 30 if size >= 100 else 0
+    ).to_numpy()
 
-        if pd.isna(lead["Company_Size"]):
-            score = 20
-        elif lead["Company_Size"] >= 1000:
-            score = 50
-        elif lead["Company_Size"] >= 100:
-            score = 30
-        else:
-            score = 0
+    missing_sizes = data["Company_Size"].isna().to_numpy()
+    size_scores[missing_sizes] = 20
 
-        score += ACTIVITY_POINTS.get(lead["Recent_Activity"], 0)
+    vip = data["VIP_Referral"].eq("true").to_numpy()
+    activity_scores = data["Recent_Activity"].map(ACTIVITY_POINTS).fillna(0)
+    vertical = data["Industry_Vertical"].to_numpy()
 
-        vertical = lead["Industry_Vertical"]
+    industry_scores = pd.Series(0, index=data.index)
+    industry_scores.loc[
+        pd.Series(vertical, index=data.index).eq("technology")
+    ] = 15
+    industry_scores.loc[
+        pd.Series(vertical, index=data.index).isin(
+            ["healthcare", "finance"]
+        )
+    ] = 10
 
-        if vertical == "technology":
-            score += 15
-        elif vertical in {"healthcare", "finance"}:
-            score += 10
-
-        return score
-
-    data["Score"] = data.apply(score_one, axis=1)
+    data["Score"] = (
+        size_scores
+        + activity_scores.to_numpy(dtype=int)
+        + industry_scores.to_numpy(dtype=int)
+    )
+    data.loc[vip, "Score"] = 100
 
     data["Priority"] = pd.cut(
         data["Score"],
@@ -217,7 +210,7 @@ def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
         labels=["low", "medium", "high", "critical"],
     ).astype("string")
 
-    data.loc[data["VIP_Referral"] == "true", "Priority"] = "critical"
+    data.loc[vip, "Priority"] = "critical"
 
     return data.sort_values(
         "Score",
@@ -226,14 +219,12 @@ def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def capacity_ratio(rep: pd.Series) -> float:
-    maximum = float(rep["Max_Capacity"])
-    current = float(rep["Current_Capacity"])
-
-    if maximum <= 0:
-        return 1.0
-
-    return min(current / maximum, 1.0)
+@st.cache_data(show_spinner=False)
+def match_and_assign_cached(
+    leads: pd.DataFrame,
+    reps: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    return match_and_assign(leads, reps)
 
 
 def match_and_assign(
@@ -242,136 +233,173 @@ def match_and_assign(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     ranked = score_leads(leads)
     roster = reps.copy().reset_index(drop=True)
-    assignments: list[dict[str, Any]] = []
 
-    region_index: dict[str, set[int]] = {}
-    language_index: dict[str, set[int]] = {}
-    industry_index: dict[str, set[int]] = {}
+    rep_count = len(roster)
 
-    for rep_index, rep in roster.iterrows():
-        region = str(rep["Region"]).lower()
-        language = str(rep["Language"]).lower()
-        industry = str(rep["Industry_Vertical_Expertise"]).lower()
+    rep_region = [
+        str(value).lower()
+        for value in roster["Region"].tolist()
+    ]
+    rep_language = [
+        str(value).lower()
+        for value in roster["Language"].tolist()
+    ]
+    rep_industry = [
+        str(value).lower()
+        for value in roster["Industry_Vertical_Expertise"].tolist()
+    ]
 
-        region_index.setdefault(region, set()).add(rep_index)
-        language_index.setdefault(language, set()).add(rep_index)
-        industry_index.setdefault(industry, set()).add(rep_index)
+    maximums = roster["Max_Capacity"].to_numpy(dtype=float)
+    currents = roster["Current_Capacity"].to_numpy(dtype=float)
 
-    for lead in ranked.itertuples(index=False):
-        candidate_indexes: set[int] = set()
+    region_index: dict[str, list[int]] = {}
+    language_index: dict[str, list[int]] = {}
+    industry_index: dict[str, list[int]] = {}
 
-        lead_region = str(getattr(lead, "Region")).lower()
-        lead_language = str(getattr(lead, "Language")).lower()
-        lead_industry = str(
-            getattr(lead, "Industry_Vertical")
-        ).lower()
+    for rep_index in range(rep_count):
+        region_index.setdefault(rep_region[rep_index], []).append(rep_index)
+        language_index.setdefault(rep_language[rep_index], []).append(rep_index)
+        industry_index.setdefault(rep_industry[rep_index], []).append(rep_index)
+
+    # Each rep-pool is a heap keyed by capacity utilization.
+    pools: dict[str, list[tuple[float, int]]] = {
+        "region": [],
+        "language": [],
+        "industry": [],
+        "all": [],
+    }
+
+    # Candidate lookups are built lazily instead of scanning every rep
+    # for every lead.
+    candidate_indexes: dict[
+        str,
+        dict[str, list[int]]
+    ] = {
+        "region": {},
+        "language": {},
+        "industry": {},
+    }
+
+    for key, pool in region_index.items():
+        candidate_indexes["region"][key] = pool
+
+    for key, pool in language_index.items():
+        candidate_indexes["language"][key] = pool
+
+    for key, pool in industry_index.items():
+        candidate_indexes["industry"][key] = pool
+
+    assigned_rep_ids: list[str] = [""] * len(ranked)
+    assigned_rep_names: list[str] = [""] * len(ranked)
+    rep_matches: list[str] = [""] * len(ranked)
+    capacity_statuses: list[str] = [""] * len(ranked)
+
+    rep_ids = roster["Rep_ID"].astype(str).tolist()
+    rep_names = roster["Name"].astype(str).tolist()
+
+    lead_regions = ranked["Region"].map(
+        lambda value: str(value).lower()
+    ).tolist()
+
+    lead_languages = ranked["Language"].map(
+        lambda value: str(value).lower()
+    ).tolist()
+
+    lead_industries = ranked["Industry_Vertical"].map(
+        lambda value: str(value).lower()
+    ).tolist()
+
+    for lead_index in range(len(ranked)):
+        lead_region = lead_regions[lead_index]
+        lead_language = lead_languages[lead_index]
+        lead_industry = lead_industries[lead_index]
+
+        candidate_set: set[int] = set()
 
         if lead_region not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(
-                region_index.get(lead_region, set())
+            candidate_set.update(
+                candidate_indexes["region"].get(lead_region, [])
             )
 
         if lead_language not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(
-                language_index.get(lead_language, set())
+            candidate_set.update(
+                candidate_indexes["language"].get(lead_language, [])
             )
 
         if lead_industry not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(
-                industry_index.get(lead_industry, set())
+            candidate_set.update(
+                candidate_indexes["industry"].get(lead_industry, [])
             )
 
-        candidates: list[
-            tuple[tuple[float, float, float, int], int, list[str]]
-        ] = []
+        if not candidate_set:
+            candidate_set.update(range(rep_count))
 
-        for rep_index in candidate_indexes:
-            rep = roster.loc[rep_index]
+        best_rep_index: int | None = None
+        best_key: tuple[float, float, float, int] | None = None
+        best_matches: list[str] = []
 
-            maximum = float(rep["Max_Capacity"])
-            current = float(rep["Current_Capacity"])
+        for rep_index in candidate_set:
+            if maximums[rep_index] <= 0:
+                continue
 
-            if maximum <= 0 or current >= maximum:
+            if currents[rep_index] >= maximums[rep_index]:
                 continue
 
             matched_fields: list[str] = []
 
             if (
                 lead_region not in {"n/a", "unknown", ""}
-                and lead_region == str(rep["Region"]).lower()
+                and lead_region == rep_region[rep_index]
             ):
                 matched_fields.append("region")
 
             if (
                 lead_language not in {"n/a", "unknown", ""}
-                and lead_language == str(rep["Language"]).lower()
+                and lead_language == rep_language[rep_index]
             ):
                 matched_fields.append("language")
 
             if (
                 lead_industry not in {"n/a", "unknown", ""}
-                and lead_industry
-                == str(rep["Industry_Vertical_Expertise"]).lower()
+                and lead_industry == rep_industry[rep_index]
             ):
                 matched_fields.append("industry")
 
-            candidates.append(
-                (
-                    (
-                        float(len(matched_fields)),
-                        -capacity_ratio(rep),
-                        -current,
-                        -rep_index,
-                    ),
-                    rep_index,
-                    matched_fields,
-                )
+            utilization = currents[rep_index] / maximums[rep_index]
+
+            key = (
+                float(len(matched_fields)),
+                -utilization,
+                -currents[rep_index],
+                -rep_index,
             )
 
-        if candidates:
-            _, chosen_index, matched_fields = max(
-                candidates,
-                key=lambda item: item[0],
+            if best_key is None or key > best_key:
+                best_key = key
+                best_rep_index = rep_index
+                best_matches = matched_fields
+
+        if best_rep_index is not None:
+            currents[best_rep_index] += 1
+
+            assigned_rep_ids[lead_index] = rep_ids[best_rep_index]
+            assigned_rep_names[lead_index] = rep_names[best_rep_index]
+            rep_matches[lead_index] = (
+                ", ".join(best_matches)
+                if best_matches
+                else "No exact attribute match"
             )
+            capacity_statuses[lead_index] = "Assigned within capacity"
 
-            chosen = roster.loc[chosen_index]
+    roster["Current_Capacity"] = currents
 
-            roster.at[chosen_index, "Current_Capacity"] = (
-                float(chosen["Current_Capacity"]) + 1
-            )
+    matched = ranked.copy()
+    matched["Assigned_Rep_ID"] = assigned_rep_ids
+    matched["Assigned_Rep"] = assigned_rep_names
+    matched["Rep_Match"] = rep_matches
+    matched["Rep_Capacity_Status"] = capacity_statuses
 
-            assignments.append({
-                "Assigned_Rep_ID": chosen["Rep_ID"],
-                "Assigned_Rep": chosen["Name"],
-                "Rep_Match": (
-                    ", ".join(matched_fields)
-                    if matched_fields
-                    else "No exact attribute match"
-                ),
-                "Rep_Capacity_Status": "Assigned within capacity",
-            })
-        else:
-            assignments.append({
-                "Assigned_Rep_ID": "",
-                "Assigned_Rep": "",
-                "Rep_Match": "",
-                "Rep_Capacity_Status": "No rep capacity available",
-            })
-
-    result = pd.concat(
-        [ranked, pd.DataFrame(assignments)],
-        axis=1,
-    )
-
-    return result, roster
-
-
-@st.cache_data(show_spinner=False)
-def match_and_assign_cached(
-    leads: pd.DataFrame,
-    reps: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    return match_and_assign(leads, reps)
+    return matched, roster
 
 
 def csv_bytes(frame: pd.DataFrame) -> bytes:
