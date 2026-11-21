@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import time
 import re
 from heapq import heappush, heappop
 from typing import Any
@@ -389,12 +390,17 @@ def read_csv_cached(data: bytes) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(data))
 
 
+_t0 = time.perf_counter()
+_timings: dict[str, float] = {}
+
 try:
     raw_leads = read_csv_cached(lead_file.getvalue())
     raw_reps = read_csv_cached(rep_file.getvalue())
 except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
     st.error(f"Could not read one of the CSV files: {exc}")
     st.stop()
+
+_timings["Read CSVs"] = time.perf_counter() - _t0
 
 missing_leads = sorted(LEAD_REQUIRED - set(raw_leads.columns))
 missing_reps = sorted(REP_REQUIRED - set(raw_reps.columns))
@@ -418,14 +424,24 @@ if raw_leads.empty or raw_reps.empty:
     st.error("Both files must contain at least one data row.")
     st.stop()
 
+_t = time.perf_counter()
 leads_clean = normalize_leads(raw_leads)
 reps_clean = normalize_reps(raw_reps)
+_timings["Clean data"] = time.perf_counter() - _t
 
+_t = time.perf_counter()
 with st.spinner("Scoring and assigning leads..."):
     matched, final_roster = match_and_assign_cached(
         leads_clean,
         reps_clean,
     )
+
+_timings["Score and assign"] = time.perf_counter() - _t
+st.caption(
+    "Timings (s): "
+    + ", ".join(f"{k} {v:.2f}" for k, v in _timings.items())
+    + f" | leads {len(leads_clean):,}, reps {len(reps_clean):,}"
+)
 
 st.success(
     f"Processed {len(matched):,} leads and "
