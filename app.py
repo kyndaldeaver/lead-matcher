@@ -6,6 +6,7 @@ import re
 from heapq import heappush, heappop
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -125,18 +126,31 @@ def company_size(value: Any) -> float | None:
         return None
 
 
+def map_unique(series: pd.Series, func) -> pd.Series:
+    """Apply func once per distinct value, then spread results to all rows."""
+    codes, uniques = pd.factorize(series, use_na_sentinel=False)
+    results = np.empty(len(uniques), dtype=object)
+    for i, value in enumerate(uniques):
+        results[i] = func(value)
+    return pd.Series(results[codes], index=series.index)
+
+
 @st.cache_data(show_spinner=False)
 def normalize_leads(frame: pd.DataFrame) -> pd.DataFrame:
     data = frame.copy()
 
-    data["Region"] = data["Region"].map(clean_region)
-    data["Language"] = data["Language"].map(clean_language)
-    data["Industry_Vertical"] = data["Industry_Vertical"].map(
-        lambda value: clean_text(value) or "unknown"
+    data["Region"] = map_unique(data["Region"], clean_region)
+    data["Language"] = map_unique(data["Language"], clean_language)
+    data["Industry_Vertical"] = map_unique(
+        data["Industry_Vertical"],
+        lambda value: clean_text(value) or "unknown",
     )
-    data["Company_Size"] = data["Company_Size"].map(company_size)
-    data["Recent_Activity"] = data["Recent_Activity"].map(clean_activity)
-    data["VIP_Referral"] = data["VIP_Referral"].map(
+    data["Company_Size"] = pd.to_numeric(
+        map_unique(data["Company_Size"], company_size), errors="coerce"
+    ).astype(float)
+    data["Recent_Activity"] = map_unique(data["Recent_Activity"], clean_activity)
+    data["VIP_Referral"] = map_unique(
+        data["VIP_Referral"],
         lambda value: (
             clean_text(value)
             if clean_text(value) in {"true", "false", "unknown"}
@@ -156,8 +170,8 @@ def normalize_reps(frame: pd.DataFrame) -> pd.DataFrame:
         if pd.notna(value)
         else ""
     )
-    data["Region"] = data["Region"].map(clean_region)
-    data["Language"] = data["Language"].map(clean_language)
+    data["Region"] = map_unique(data["Region"], clean_region)
+    data["Language"] = map_unique(data["Language"], clean_language)
     data["Industry_Vertical_Expertise"] = (
         data["Industry_Vertical_Expertise"].map(
             lambda value: clean_text(value) or "unknown"
