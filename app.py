@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import re
 from heapq import heappush, heappop
 from typing import Any
@@ -178,7 +179,7 @@ def score_leads(leads: pd.DataFrame) -> pd.DataFrame:
     company_sizes = data["Company_Size"].to_numpy(dtype=float, na_value=0)
     size_scores = pd.Series(company_sizes).map(
         lambda size: 50 if size >= 1000 else 30 if size >= 100 else 0
-    ).to_numpy()
+    ).to_numpy().copy()
 
     missing_sizes = data["Company_Size"].isna().to_numpy()
     size_scores[missing_sizes] = 20
@@ -234,162 +235,94 @@ def match_and_assign(
     ranked = score_leads(leads)
     roster = reps.copy().reset_index(drop=True)
 
-    rep_count = len(roster)
-
-    rep_region = [
-        str(value).lower()
-        for value in roster["Region"].tolist()
-    ]
-    rep_language = [
-        str(value).lower()
-        for value in roster["Language"].tolist()
-    ]
-    rep_industry = [
-        str(value).lower()
-        for value in roster["Industry_Vertical_Expertise"].tolist()
-    ]
+    rep_region = roster["Region"].astype(str).str.lower().tolist()
+    rep_language = roster["Language"].astype(str).str.lower().tolist()
+    rep_industry = (
+        roster["Industry_Vertical_Expertise"].astype(str).str.lower().tolist()
+    )
+    rep_ids = roster["Rep_ID"].astype(str).tolist()
+    rep_names = roster["Name"].astype(str).tolist()
 
     maximums = roster["Max_Capacity"].to_numpy(dtype=float)
     currents = roster["Current_Capacity"].to_numpy(dtype=float)
 
-    region_index: dict[str, list[int]] = {}
-    language_index: dict[str, list[int]] = {}
-    industry_index: dict[str, list[int]] = {}
+    blank = {"n/a", "unknown", ""}
 
-    for rep_index in range(rep_count):
-        region_index.setdefault(rep_region[rep_index], []).append(rep_index)
-        language_index.setdefault(rep_language[rep_index], []).append(rep_index)
-        industry_index.setdefault(rep_industry[rep_index], []).append(rep_index)
+    # One heap per distinct (region, language, industry) signature.
+    # Heap entries: (utilization, current, index); smallest = best rep.
+    groups: dict[tuple[str, str, str], list[tuple[float, float, int]]] = {}
+    for i in range(len(roster)):
+        sig = (rep_region[i], rep_language[i], rep_industry[i])
+        heap = groups.setdefault(sig, [])
+        if maximums[i] > 0 and currents[i] < maximums[i]:
+            heappush(heap, (currents[i] / maximums[i], currents[i], i))
 
-    # Each rep-pool is a heap keyed by capacity utilization.
-    pools: dict[str, list[tuple[float, int]]] = {
-        "region": [],
-        "language": [],
-        "industry": [],
-        "all": [],
-    }
+    sigs = list(groups.keys())
 
-    # Candidate lookups are built lazily instead of scanning every rep
-    # for every lead.
-    candidate_indexes: dict[
-        str,
-        dict[str, list[int]]
-    ] = {
-        "region": {},
-        "language": {},
-        "industry": {},
-    }
+    n = len(ranked)
+    assigned_rep_ids = [""] * n
+    assigned_rep_names = [""] * n
+    rep_matches = [""] * n
+    capacity_statuses = [""] * n
 
-    for key, pool in region_index.items():
-        candidate_indexes["region"][key] = pool
+    lead_regions = ranked["Region"].astype(str).str.lower().tolist()
+    lead_languages = ranked["Language"].astype(str).str.lower().tolist()
+    lead_industries = (
+        ranked["Industry_Vertical"].astype(str).str.lower().tolist()
+    )
 
-    for key, pool in language_index.items():
-        candidate_indexes["language"][key] = pool
+    # Leads with identical attributes share the same group-match table.
+    match_cache: dict[tuple[str, str, str], list] = {}
 
-    for key, pool in industry_index.items():
-        candidate_indexes["industry"][key] = pool
+    for li in range(n):
+        lead_sig = (lead_regions[li], lead_languages[li], lead_industries[li])
 
-    assigned_rep_ids: list[str] = [""] * len(ranked)
-    assigned_rep_names: list[str] = [""] * len(ranked)
-    rep_matches: list[str] = [""] * len(ranked)
-    capacity_statuses: list[str] = [""] * len(ranked)
+        if lead_sig not in match_cache:
+            r, lang, ind = lead_sig
+            per_group = []
+            for sig in sigs:
+                fields = []
+                if r not in blank and r == sig[0]:
+                    fields.append("region")
+                if lang not in blank and lang == sig[1]:
+                    fields.append("language")
+                if ind not in blank and ind == sig[2]:
+                    fields.append("industry")
+                per_group.append((sig, fields))
+            matching = [(s, f) for s, f in per_group if f]
+            # No rep shares any attribute -> every rep is a candidate.
+            match_cache[lead_sig] = matching or per_group
 
-    rep_ids = roster["Rep_ID"].astype(str).tolist()
-    rep_names = roster["Name"].astype(str).tolist()
+        best_key = None
+        best_sig = None
+        best_fields: list[str] = []
 
-    lead_regions = ranked["Region"].map(
-        lambda value: str(value).lower()
-    ).tolist()
-
-    lead_languages = ranked["Language"].map(
-        lambda value: str(value).lower()
-    ).tolist()
-
-    lead_industries = ranked["Industry_Vertical"].map(
-        lambda value: str(value).lower()
-    ).tolist()
-
-    for lead_index in range(len(ranked)):
-        lead_region = lead_regions[lead_index]
-        lead_language = lead_languages[lead_index]
-        lead_industry = lead_industries[lead_index]
-
-        candidate_set: set[int] = set()
-
-        if lead_region not in {"n/a", "unknown", ""}:
-            candidate_set.update(
-                candidate_indexes["region"].get(lead_region, [])
-            )
-
-        if lead_language not in {"n/a", "unknown", ""}:
-            candidate_set.update(
-                candidate_indexes["language"].get(lead_language, [])
-            )
-
-        if lead_industry not in {"n/a", "unknown", ""}:
-            candidate_set.update(
-                candidate_indexes["industry"].get(lead_industry, [])
-            )
-
-        if not candidate_set:
-            candidate_set.update(range(rep_count))
-
-        best_rep_index: int | None = None
-        best_key: tuple[float, float, float, int] | None = None
-        best_matches: list[str] = []
-
-        for rep_index in candidate_set:
-            if maximums[rep_index] <= 0:
+        for sig, fields in match_cache[lead_sig]:
+            heap = groups[sig]
+            if not heap:
                 continue
-
-            if currents[rep_index] >= maximums[rep_index]:
-                continue
-
-            matched_fields: list[str] = []
-
-            if (
-                lead_region not in {"n/a", "unknown", ""}
-                and lead_region == rep_region[rep_index]
-            ):
-                matched_fields.append("region")
-
-            if (
-                lead_language not in {"n/a", "unknown", ""}
-                and lead_language == rep_language[rep_index]
-            ):
-                matched_fields.append("language")
-
-            if (
-                lead_industry not in {"n/a", "unknown", ""}
-                and lead_industry == rep_industry[rep_index]
-            ):
-                matched_fields.append("industry")
-
-            utilization = currents[rep_index] / maximums[rep_index]
-
-            key = (
-                float(len(matched_fields)),
-                -utilization,
-                -currents[rep_index],
-                -rep_index,
-            )
-
+            util, cur, idx = heap[0]
+            key = (len(fields), -util, -cur, -idx)
             if best_key is None or key > best_key:
-                best_key = key
-                best_rep_index = rep_index
-                best_matches = matched_fields
+                best_key, best_sig, best_fields = key, sig, fields
 
-        if best_rep_index is not None:
-            currents[best_rep_index] += 1
+        if best_sig is None:
+            continue
 
-            assigned_rep_ids[lead_index] = rep_ids[best_rep_index]
-            assigned_rep_names[lead_index] = rep_names[best_rep_index]
-            rep_matches[lead_index] = (
-                ", ".join(best_matches)
-                if best_matches
-                else "No exact attribute match"
+        _, _, idx = heappop(groups[best_sig])
+        currents[idx] += 1
+        if currents[idx] < maximums[idx]:
+            heappush(
+                groups[best_sig],
+                (currents[idx] / maximums[idx], currents[idx], idx),
             )
-            capacity_statuses[lead_index] = "Assigned within capacity"
+
+        assigned_rep_ids[li] = rep_ids[idx]
+        assigned_rep_names[li] = rep_names[idx]
+        rep_matches[li] = (
+            ", ".join(best_fields) if best_fields else "No exact attribute match"
+        )
+        capacity_statuses[li] = "Assigned within capacity"
 
     roster["Current_Capacity"] = currents
 
@@ -402,6 +335,7 @@ def match_and_assign(
     return matched, roster
 
 
+@st.cache_data(show_spinner=False)
 def csv_bytes(frame: pd.DataFrame) -> bytes:
     return frame.to_csv(index=False).encode("utf-8-sig")
 
@@ -450,9 +384,14 @@ if not lead_file or not rep_file:
     st.info("Upload both CSV files to start matching.")
     st.stop()
 
+@st.cache_data(show_spinner=False)
+def read_csv_cached(data: bytes) -> pd.DataFrame:
+    return pd.read_csv(io.BytesIO(data))
+
+
 try:
-    raw_leads = pd.read_csv(lead_file)
-    raw_reps = pd.read_csv(rep_file)
+    raw_leads = read_csv_cached(lead_file.getvalue())
+    raw_reps = read_csv_cached(rep_file.getvalue())
 except (UnicodeDecodeError, pd.errors.ParserError, ValueError) as exc:
     st.error(f"Could not read one of the CSV files: {exc}")
     st.stop()
