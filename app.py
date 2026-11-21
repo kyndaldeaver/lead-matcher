@@ -794,7 +794,7 @@ st.write(
 
 with st.sidebar:
     st.header("Assignment settings")
-    )
+    
 
     st.divider()
 
