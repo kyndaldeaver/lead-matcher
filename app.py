@@ -257,21 +257,29 @@ def match_and_assign(
         language_index.setdefault(language, set()).add(rep_index)
         industry_index.setdefault(industry, set()).add(rep_index)
 
-    for _, lead in ranked.iterrows():
+    for lead in ranked.itertuples(index=False):
         candidate_indexes: set[int] = set()
 
-        lead_region = str(lead["Region"]).lower()
-        lead_language = str(lead["Language"]).lower()
-        lead_industry = str(lead["Industry_Vertical"]).lower()
+        lead_region = str(getattr(lead, "Region")).lower()
+        lead_language = str(getattr(lead, "Language")).lower()
+        lead_industry = str(
+            getattr(lead, "Industry_Vertical")
+        ).lower()
 
         if lead_region not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(region_index.get(lead_region, set()))
+            candidate_indexes.update(
+                region_index.get(lead_region, set())
+            )
 
         if lead_language not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(language_index.get(lead_language, set()))
+            candidate_indexes.update(
+                language_index.get(lead_language, set())
+            )
 
         if lead_industry not in {"n/a", "unknown", ""}:
-            candidate_indexes.update(industry_index.get(lead_industry, set()))
+            candidate_indexes.update(
+                industry_index.get(lead_industry, set())
+            )
 
         candidates: list[
             tuple[tuple[float, float, float, int], int, list[str]]
@@ -286,37 +294,37 @@ def match_and_assign(
             if maximum <= 0 or current >= maximum:
                 continue
 
-            matched: list[str] = []
+            matched_fields: list[str] = []
 
             if (
                 lead_region not in {"n/a", "unknown", ""}
                 and lead_region == str(rep["Region"]).lower()
             ):
-                matched.append("region")
+                matched_fields.append("region")
 
             if (
                 lead_language not in {"n/a", "unknown", ""}
                 and lead_language == str(rep["Language"]).lower()
             ):
-                matched.append("language")
+                matched_fields.append("language")
 
             if (
                 lead_industry not in {"n/a", "unknown", ""}
                 and lead_industry
                 == str(rep["Industry_Vertical_Expertise"]).lower()
             ):
-                matched.append("industry")
+                matched_fields.append("industry")
 
             candidates.append(
                 (
                     (
-                        float(len(matched)),
+                        float(len(matched_fields)),
                         -capacity_ratio(rep),
                         -current,
                         -rep_index,
                     ),
                     rep_index,
-                    matched,
+                    matched_fields,
                 )
             )
 
@@ -446,10 +454,11 @@ if raw_leads.empty or raw_reps.empty:
 leads_clean = normalize_leads(raw_leads)
 reps_clean = normalize_reps(raw_reps)
 
-matched, final_roster = match_and_assign_cached(
-    leads_clean,
-    reps_clean,
-)
+with st.spinner("Scoring and assigning leads..."):
+    matched, final_roster = match_and_assign_cached(
+        leads_clean,
+        reps_clean,
+    )
 
 st.success(
     f"Processed {len(matched):,} leads and "
@@ -526,7 +535,9 @@ with results_tab:
             )
 
         with filter3:
-            size_groups = matched["Company_Size"].map(company_size_group)
+            size_groups = matched["Company_Size"].map(
+                company_size_group
+            )
 
             size_options = [
                 "Under 100",
@@ -556,7 +567,9 @@ with results_tab:
 
         if industry_filter != "All":
             filtered = filtered[
-                filtered["Industry_Vertical"].fillna("unknown").astype(str)
+                filtered["Industry_Vertical"]
+                .fillna("unknown")
+                .astype(str)
                 == industry_filter
             ]
 
@@ -605,7 +618,8 @@ with results_tab:
 
         total_pages = max(
             1,
-            (len(filtered) + TABLE_PAGE_SIZE - 1) // TABLE_PAGE_SIZE,
+            (len(filtered) + TABLE_PAGE_SIZE - 1)
+            // TABLE_PAGE_SIZE,
         )
 
         page = st.number_input(
@@ -661,7 +675,9 @@ with results_tab:
             unsafe_allow_html=True,
         )
 
-        chart_left, chart_center, chart_right = st.columns([1, 4, 1])
+        chart_left, chart_center, chart_right = st.columns(
+            [1, 4, 1]
+        )
 
         with chart_center:
             st.vega_lite_chart(
@@ -718,7 +734,9 @@ with results_tab:
             ]
             .assign(
                 _rep_id_key=lambda data: (
-                    data["Assigned_Rep_ID"].astype(str).str.strip()
+                    data["Assigned_Rep_ID"]
+                    .astype(str)
+                    .str.strip()
                 )
             )
             .groupby("_rep_id_key")
@@ -731,7 +749,9 @@ with results_tab:
         ].copy()
 
         rep_summary["_rep_id_key"] = (
-            rep_summary["Rep_ID"].astype(str).str.strip()
+            rep_summary["Rep_ID"]
+            .astype(str)
+            .str.strip()
         )
 
         rep_summary["Assigned Leads"] = (
@@ -825,7 +845,8 @@ with queue_tab:
 
             st.caption(
                 f"Showing rows {queue_start + 1:,}–"
-                f"{queue_end:,} of {len(queue):,} queued leads."
+                f"{queue_end:,} of {len(queue):,} "
+                "queued leads."
             )
         else:
             queue_visible = queue
