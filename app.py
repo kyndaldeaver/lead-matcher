@@ -878,10 +878,6 @@ if cleaned_leads is not None:
         f"{(cleaned_leads['Priority'] == 'medium').sum():,}",
     )
 
-    lead_metric_columns[4].metric(
-        "Average score",
-        f"{average_score:.1f}",
-    )
 
     selected_priorities = st.multiselect(
         "Filter leads by priority",
