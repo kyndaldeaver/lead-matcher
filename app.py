@@ -181,7 +181,7 @@ if leads_file and reps_file:
     
             sort_option = st.selectbox(
                 "Sort by",
-                ["score", "Company_Size", "Lead_ID", "Language"]
+                ["Score"]
             )
             sort_direction = st.radio(
                 "Sort direction",
