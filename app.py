@@ -159,6 +159,7 @@ with tab2:
     if ("leads" in st.session_state) and ("reps" in st.session_state):
         leads = st.session_state.leads
         reps = st.session_state.reps
+
         leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
@@ -166,6 +167,7 @@ with tab2:
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
         if not lead_sample_cols:
             lead_sample_cols = leads.columns[:2]
+        # Show all leads (not filtered)
         st.dataframe(leads[lead_sample_cols].head(50))
 
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
@@ -186,7 +188,7 @@ with tab2:
         elif unassigned_count == 0:
             st.info("All leads are already assigned.")
 
-        # --- Priority distribution pie chart (SECOND chart) ---
+        # Priority pie chart (shows all leads by category)
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(
             labels=priority_counts.index,
@@ -194,7 +196,6 @@ with tab2:
             textinfo='percent+label'))
         pie2.update_layout(title="Leads by Priority")
         st.plotly_chart(pie2)
-
     else:
         st.info("Upload files in Tab 1.")
 
@@ -237,7 +238,10 @@ with tab5:
         leads = st.session_state.leads
         queue = leads[leads["Assigned_Rep_ID"].isna()]
         queue = queue.sort_values("priority_score", ascending=False)
-        st.dataframe(queue.head(50))
+        queue_sample_cols = [c for c in ["Lead_ID", "Company_Name", "priority_score", "score", "Region"] if c in queue.columns]
+        if not queue_sample_cols:
+            queue_sample_cols = queue.columns[:2]
+        st.dataframe(queue[queue_sample_cols].head(50))
     else:
         st.info("Upload files in Tab 1.")
 
