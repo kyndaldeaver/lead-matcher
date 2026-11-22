@@ -171,43 +171,43 @@ if leads_file and reps_file:
 
     # Tab 3: Lead Filtering
     with tab3:
-    st.header("Filter & Sort Leads")
-    if "leads" in st.session_state:
-        leads = st.session_state.leads
-
-        region_filter = st.multiselect("Region", leads["Region"].unique())
-        priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
-        language_filter = st.multiselect("Language", leads["Language"].unique())
-
-        # Dynamically generate all possible sort columns
-        candidate_sort_cols = list(leads.columns)
-        sort_option = st.selectbox("Sort by", candidate_sort_cols)
-
-        sort_direction = st.radio(
-            "Sort direction",
-            ["Descending", "Ascending"],
-            index=0,
-            horizontal=True
-        )
-        ascending = sort_direction == "Ascending"
-
-        filtered = leads.copy()
-        if region_filter:
-            filtered = filtered[filtered["Region"].isin(region_filter)]
-        if priority_filter:
-            filtered = filtered[filtered["priority_score"].isin(priority_filter)]
-        if language_filter:
-            filtered = filtered[filtered["Language"].isin(language_filter)]
-
-        # DOUBLE-CHECK: user can only pick an available column from selectbox, but double-check for safety!
-        if sort_option in filtered.columns:
-            filtered = filtered.sort_values(sort_option, ascending=ascending)
+        st.header("Filter & Sort Leads")
+        if "leads" in st.session_state:
+            leads = st.session_state.leads
+    
+            region_filter = st.multiselect("Region", leads["Region"].unique())
+            priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
+            language_filter = st.multiselect("Language", leads["Language"].unique())
+    
+            # Dynamically generate all possible sort columns
+            candidate_sort_cols = list(leads.columns)
+            sort_option = st.selectbox("Sort by", candidate_sort_cols)
+    
+            sort_direction = st.radio(
+                "Sort direction",
+                ["Descending", "Ascending"],
+                index=0,
+                horizontal=True
+            )
+            ascending = sort_direction == "Ascending"
+    
+            filtered = leads.copy()
+            if region_filter:
+                filtered = filtered[filtered["Region"].isin(region_filter)]
+            if priority_filter:
+                filtered = filtered[filtered["priority_score"].isin(priority_filter)]
+            if language_filter:
+                filtered = filtered[filtered["Language"].isin(language_filter)]
+    
+            # DOUBLE-CHECK: user can only pick an available column from selectbox, but double-check for safety!
+            if sort_option in filtered.columns:
+                filtered = filtered.sort_values(sort_option, ascending=ascending)
+            else:
+                st.warning(f"Sort column '{sort_option}' not present after filtering. Available: {filtered.columns.tolist()}")
+    
+            st.dataframe(filtered.head(50))
         else:
-            st.warning(f"Sort column '{sort_option}' not present after filtering. Available: {filtered.columns.tolist()}")
-
-        st.dataframe(filtered.head(50))
-    else:
-        st.info("Upload files in Tab 1 to filter leads.")
+            st.info("Upload files in Tab 1 to filter leads.")
         
     # Tab 4: Rep Capacity Editing
     with tab4:
