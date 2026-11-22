@@ -180,7 +180,10 @@ if leads_file and reps_file:
             language_filter = st.multiselect("Language", leads["Language"].unique())
     
             candidate_sort_cols = [col for col in ["score", "Company_Size", "Lead_ID", "Language"] if col in leads.columns]
-            sort_option = st.selectbox("Sort by", candidate_sort_cols)
+            
+            st.write("Sort columns available:", filtered.columns.tolist())
+            st.write("Sort_option selected:", sort_option)
+
             )
             sort_direction = st.radio(
                 "Sort direction",
