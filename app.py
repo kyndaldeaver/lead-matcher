@@ -159,6 +159,16 @@ if leads_file and reps_file:
         pie2.update_layout(title="Leads by Priority")
         st.plotly_chart(pie2)
 
+        # --- Recent Activity Pie Chart ---
+        activity_counts = leads["Recent_activity"].value_counts()
+        activity_pie = go.Figure(go.Pie(
+            labels=activity_counts.index,
+            values=activity_counts.values,
+            textinfo='percent+label'
+        ))
+        activity_pie.update_layout(title="Leads by Recent Activity")
+        st.plotly_chart(activity_pie)
+
     # Tab 3: Lead Filtering
     with tab3:
         st.header("Filter & Sort Leads")
