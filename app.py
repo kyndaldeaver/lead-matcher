@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 
 st.title("Sales Lead Assignment Dashboard")
 
-# --- Tabs layout ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "1. Upload Data", 
     "2. Dashboard", 
@@ -14,9 +13,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "6. Download Cleaned Data"
 ])
 
-# --- Put content in each tab ---
-
-# 1. Data Upload Tab
 with tab1:
     st.header("Upload your CSV files")
     leads_file = st.file_uploader("Upload Leads CSV", type="csv")
@@ -25,7 +21,6 @@ with tab1:
 
 # Only proceed if both files are uploaded
 if leads_file and reps_file:
-    # --- Data cleaning as before ---
     leads = pd.read_csv(leads_file)
     reps = pd.read_csv(reps_file)
 
@@ -138,11 +133,11 @@ if leads_file and reps_file:
 
     leads["score"] = leads.apply(score_lead, axis=1)
     bins = [-float('inf'),40,60,85,float('inf')]
-    labels=["low","medium","high","critical"]
+    labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
 
-    # Tab 2: Dashboard
+    # --- Dashboard tab ---
     with tab2:
         st.header("Overview Dashboard")
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
@@ -153,6 +148,43 @@ if leads_file and reps_file:
         lead_info = leads[leads["Lead_ID"] == selected_lead_id]
         st.markdown("**Lead Details:**")
         st.dataframe(lead_info)
+
+        # Assignment button
+        st.markdown("### Assign Leads to Reps")
+        if st.button("Assign All Unassigned Leads"):
+            # Initialize assignment columns if missing
+            if "Assigned_Rep_ID" not in leads.columns:
+                leads["Assigned_Rep_ID"] = None
+            if "Assigned_Rep_Name" not in leads.columns:
+                leads["Assigned_Rep_Name"] = None
+
+            reps_capacity = reps.copy()
+            reps_capacity["leads_assigned"] = 0
+
+            for idx, lead in leads.iterrows():
+                if pd.notna(lead["Assigned_Rep_ID"]):
+                    continue  # Already assigned
+
+                # Only consider reps with remaining capacity
+                possible_reps = reps_capacity[
+                    (reps_capacity["Region"] == lead["Region"]) &
+                    (reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"])
+                ]
+                if possible_reps.empty:
+                    # If nobody in region, try any rep with capacity
+                    possible_reps = reps_capacity[reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"]]
+                if possible_reps.empty:
+                    continue  # No rep left with capacity
+
+                # Pick rep with the lowest percentage capacity
+                rep_row = possible_reps.sort_values("percentage_capacity").iloc[0]
+                # Assign
+                leads.at[idx, "Assigned_Rep_ID"] = rep_row["Rep_ID"]
+                leads.at[idx, "Assigned_Rep_Name"] = rep_row["Name"]
+                reps_capacity.loc[rep_row.name, "leads_assigned"] += 1
+
+            st.success("Leads assigned! Refresh dashboard/queue tabs to see updates.")
+
         # Pie: Assigned/unassigned
         assigned = leads["Assigned_Rep_ID"].notna().sum() if "Assigned_Rep_ID" in leads.columns else 0
         unassigned = leads["Assigned_Rep_ID"].isna().sum() if "Assigned_Rep_ID" in leads.columns else leads.shape[0]
