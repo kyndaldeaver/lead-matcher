@@ -1,6 +1,6 @@
 # Lead Matcher
 
-A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within each rep's capacity.
+A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within each rep's capacity. Team 36's Ignite Challegne.
 
 ## Run locally
 
