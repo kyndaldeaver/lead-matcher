@@ -37,7 +37,6 @@ REP_COLUMNS = {
     "Region",
     "Language",
     "Industry_Vertical_Expertise",
-    "Seniority_Level",
     "Current_Capacity",
     "Max_Capacity",
 }
