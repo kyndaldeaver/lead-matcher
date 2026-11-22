@@ -161,49 +161,55 @@ if leads_file and reps_file and ("leads" not in st.session_state or "reps" not i
 
 # --- Tab 2: Dashboard ---
 with tab2:
-    with tab2:
-        st.header("Overview Dashboard")
-        if ("leads" in st.session_state) and ("reps" in st.session_state):
-            leads = st.session_state.leads
-            reps = st.session_state.reps
-    
-            # Calculate assignment stats
-            leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
-            assigned_count = leads["Assigned_Rep_ID"].notna().sum()
-            unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
-    
-            # Show assigned/unassigned pie chart always
-            pie1 = go.Figure(go.Pie(
-                labels=['Assigned', 'Unassigned'],
-                values=[assigned_count, unassigned_count],
-                textinfo='percent+label'))
-            pie1.update_layout(title="Lead Assignment Breakdown")
-            st.plotly_chart(pie1)
-    
-            # Session flag setup
-            if "assigned" not in st.session_state:
-                st.session_state.assigned = False
-    
-            # Assignment button logic
-            if not st.session_state.assigned and unassigned_count > 0:
-                st.markdown("### Assign vs Unassigned Leads")
-                if st.button("Assign All Unassigned Leads"):
-                    new_leads = fast_assign(leads, reps)  # Use your efficient assignment function
-                    st.session_state.leads = new_leads
-                    st.session_state.assigned = True
-                    st.success("Leads assigned! Refresh tabs to see updates.")
-            elif st.session_state.assigned:
-                st.info("Leads have been assigned. Assignment can only be done once.")
-            elif unassigned_count == 0:
-                st.info("All leads are already assigned.")
-    
-            # Priority distribution pie chart
-            priority_counts = leads["priority_score"].value_counts().sort_index()
-            pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
-            pie2.update_layout(title="Leads by Priority")
-            st.plotly_chart(pie2)
-        else:
-            st.info("Upload files in Tab 1.")
+    st.header("Overview Dashboard")
+    if ("leads" in st.session_state) and ("reps" in st.session_state):
+        leads = st.session_state.leads
+        reps = st.session_state.reps
+
+        lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
+        if not lead_sample_cols:
+            lead_sample_cols = leads.columns[:2]
+        st.dataframe(leads[lead_sample_cols].head(50))
+
+        selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
+        st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
+
+        # Calculate assignment stats
+        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
+        assigned_count = leads["Assigned_Rep_ID"].notna().sum()
+        unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
+
+        # Set up session_state flag
+        if "assigned" not in st.session_state:
+            st.session_state.assigned = False
+
+        # Assignment logic --
+        if not st.session_state.assigned and unassigned_count > 0:
+            st.markdown("### Assign Leads to Reps (Fast!)")
+            if st.button("Assign All Unassigned Leads"):
+                new_leads = fast_assign(leads, reps)  # Use your fast assignment function!
+                st.session_state.leads = new_leads
+                st.session_state.assigned = True
+                st.success("Leads assigned! Refresh tabs to see updates.")
+
+        elif st.session_state.assigned or unassigned_count == 0:
+            st.info("Leads have been assigned. Assignment can only be done once.")
+
+        # Assignment breakdown pie chart (always visible)
+        pie1 = go.Figure(go.Pie(
+            labels=['Assigned', 'Unassigned'],
+            values=[assigned_count, unassigned_count],
+            textinfo='percent+label'))
+        pie1.update_layout(title="Lead Assignment Breakdown")
+        st.plotly_chart(pie1)
+
+        # Priority distribution pie chart
+        priority_counts = leads["priority_score"].value_counts().sort_index()
+        pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
+        pie2.update_layout(title="Leads by Priority")
+        st.plotly_chart(pie2)
+    else:
+        st.info("Upload files in Tab 1.")
 # --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
