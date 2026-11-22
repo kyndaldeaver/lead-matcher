@@ -174,11 +174,12 @@ with tab2:
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
 
-        st.markdown("### Assigned vs Unassigned Leads")
-        new_leads = fast_assign(leads, reps)
-        # Update session state
-        st.session_state.leads = new_leads
-        st.success("Leads assigned in seconds! Refresh tabs to see updates.")
+        st.markdown("### Assign Leads to Reps (Fast!)")
+        if st.button("Assign All Unassigned Leads"):
+            new_leads = fast_assign(leads, reps)
+            # Update session state
+            st.session_state.leads = new_leads
+            st.success("Leads assigned in seconds! Refresh tabs to see updates.")
 
         # Assignment breakdown pie chart
         leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
