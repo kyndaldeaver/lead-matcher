@@ -10,8 +10,8 @@ import streamlit as st
 # ============================================================
 
 st.set_page_config(
-    page_title="Lead Assignment System",
-    page_icon="📊",
+    page_title="Team 36's Lead Assignment System",
+    page_icon=" ",
     layout="wide",
 )
 
