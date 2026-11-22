@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 st.title("Sales Lead Assignment Dashboard")
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -108,6 +109,7 @@ def clean_data(leads, reps):
     labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
+    # Ensure assignment columns
     if "Assigned_Rep_ID" not in leads.columns:
         leads["Assigned_Rep_ID"] = pd.NA
     else:
@@ -183,6 +185,16 @@ with tab2:
             st.info("Leads have been assigned. Assignment can only be done once.")
         elif unassigned_count == 0:
             st.info("All leads are already assigned.")
+
+        # --- Priority distribution pie chart (SECOND chart) ---
+        priority_counts = leads["priority_score"].value_counts().sort_index()
+        pie2 = go.Figure(go.Pie(
+            labels=priority_counts.index,
+            values=priority_counts.values,
+            textinfo='percent+label'))
+        pie2.update_layout(title="Leads by Priority")
+        st.plotly_chart(pie2)
+
     else:
         st.info("Upload files in Tab 1.")
 
