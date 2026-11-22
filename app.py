@@ -70,6 +70,7 @@ if leads_file and reps_file:
         leads["Recent_Activity"].astype("string").str.strip().str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
         .map(activity_map).fillna("N/A")
     )
+
     # Company size cleaning
     def clean_company_size(s):
         def _clean(val):
@@ -79,13 +80,14 @@ if leads_file and reps_file:
             if "k" in val_str:
                 try:
                     return int(float(val_str.replace("k", "")) * 1000)
-                except:
+                except (ValueError, TypeError):
                     return "N/A"
             try:
                 return int(float(val_str))
-            except:
+            except (ValueError, TypeError):
                 return "N/A"
         return s.apply(_clean)
+
     leads["Company_Size"] = clean_company_size(leads["Company_Size"])
 
     # Rep cleaning
@@ -101,7 +103,7 @@ if leads_file and reps_file:
     reps["Max_Capacity"] = pd.to_numeric(reps["Max_Capacity"], errors="coerce").fillna(0)
     reps["Current_Capacity"] = pd.to_numeric(reps["Current_Capacity"], errors="coerce").fillna(0)
     reps["percentage_capacity"] = reps.apply(
-        lambda row: 1 if row["Max_Capacity"] <= 0 else (row["Current_Capacity"]/row["Max_Capacity"]), axis=1
+        lambda row: 1 if row["Max_Capacity"] <= 0 else (row["Current_Capacity"] / row["Max_Capacity"]), axis=1
     )
     reps = reps.sort_values("percentage_capacity", ascending=True)
 
@@ -111,13 +113,13 @@ if leads_file and reps_file:
             return 100
         score = 0
         size = row["Company_Size"]
-        if isinstance(size, (int,float)) and size >= 1000:
+        if isinstance(size, (int, float)) and size >= 1000:
             score += 50
-        elif isinstance(size, (int,float)) and size >= 100:
+        elif isinstance(size, (int, float)) and size >= 100:
             score += 30
         elif size == "N/A":
             score += 20
-        # Recent activity
+
         act = row["Recent_activity"]
         if act in ["Requested Live Demo", "Contact Sales"]:
             score += 35
@@ -129,7 +131,7 @@ if leads_file and reps_file:
             score += 5
         elif act == "Visited Pricing Page":
             score += 10
-        # Industry scoring
+
         if row["Industry_Vertical"] == "technology":
             score += 15
         elif row["Industry_Vertical"] in ["healthcare", "finance"]:
@@ -137,8 +139,8 @@ if leads_file and reps_file:
         return score
 
     leads["score"] = leads.apply(score_lead, axis=1)
-    bins = [-float('inf'),40,60,85,float('inf')]
-    labels=["low","medium","high","critical"]
+    bins = [-float("inf"), 40, 60, 85, float("inf")]
+    labels = ["low", "medium", "high", "critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
 
@@ -153,18 +155,17 @@ if leads_file and reps_file:
         lead_info = leads[leads["Lead_ID"] == selected_lead_id]
         st.markdown("**Lead Details:**")
         st.dataframe(lead_info)
-        # Pie: priority
+
         priority_counts = leads["priority_score"].value_counts().sort_index()
-        pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
+        pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo="percent+label"))
         pie2.update_layout(title="Leads by Priority")
         st.plotly_chart(pie2)
 
-        # --- Recent Activity Pie Chart ---
         activity_counts = leads["Recent_activity"].value_counts()
         activity_pie = go.Figure(go.Pie(
             labels=activity_counts.index,
             values=activity_counts.values,
-            textinfo='percent+label'
+            textinfo="percent+label"
         ))
         activity_pie.update_layout(title="Leads by Recent Activity")
         st.plotly_chart(activity_pie)
@@ -172,43 +173,27 @@ if leads_file and reps_file:
     # Tab 3: Lead Filtering
     with tab3:
         st.header("Filter & Sort Leads")
-        if "leads" in st.session_state:
-            leads = st.session_state.leads
-    
-            region_filter = st.multiselect("Region", leads["Region"].unique())
-            priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
-            language_filter = st.multiselect("Language", leads["Language"].unique())
-    
-            # Dynamically generate all possible sort columns
-            candidate_sort_cols = list(leads.columns)
-            sort_option = st.selectbox("Sort by", candidate_sort_cols)
-    
-            sort_direction = st.radio(
-                "Sort direction",
-                ["Descending", "Ascending"],
-                index=0,
-                horizontal=True
-            )
-            ascending = sort_direction == "Ascending"
-    
-            filtered = leads.copy()
-            if region_filter:
-                filtered = filtered[filtered["Region"].isin(region_filter)]
-            if priority_filter:
-                filtered = filtered[filtered["priority_score"].isin(priority_filter)]
-            if language_filter:
-                filtered = filtered[filtered["Language"].isin(language_filter)]
-    
-            # DOUBLE-CHECK: user can only pick an available column from selectbox, but double-check for safety!
-            if sort_option in filtered.columns:
-                filtered = filtered.sort_values(sort_option, ascending=ascending)
-            else:
-                st.warning(f"Sort column '{sort_option}' not present after filtering. Available: {filtered.columns.tolist()}")
-    
-            st.dataframe(filtered.head(50))
-        else:
-            st.info("Upload files in Tab 1 to filter leads.")
-        
+
+        region_filter = st.multiselect("Region", sorted(leads["Region"].dropna().unique().tolist()))
+        priority_filter = st.multiselect("Priority", sorted(leads["priority_score"].dropna().astype(str).unique().tolist()))
+        language_filter = st.multiselect("Language", sorted(leads["Language"].dropna().unique().tolist()))
+
+        candidate_sort_cols = [col for col in ["score", "Company_Size", "Lead_ID", "Language"] if col in leads.columns]
+        sort_option = st.selectbox("Sort by", candidate_sort_cols)
+        sort_direction = st.radio("Sort direction", ["Descending", "Ascending"], index=0, horizontal=True)
+
+        filtered = leads.copy()
+        if region_filter:
+            filtered = filtered[filtered["Region"].isin(region_filter)]
+        if priority_filter:
+            filtered = filtered[filtered["priority_score"].astype(str).isin(priority_filter)]
+        if language_filter:
+            filtered = filtered[filtered["Language"].isin(language_filter)]
+
+        filtered = filtered.sort_values(sort_option, ascending=(sort_direction == "Ascending"), na_position="last")
+        st.caption(f"Showing {len(filtered)} leads")
+        st.dataframe(filtered, use_container_width=True)
+
     # Tab 4: Rep Capacity Editing
     with tab4:
         st.header("Reps with Zero or Negative Max Capacity")
@@ -225,7 +210,7 @@ if leads_file and reps_file:
     with tab5:
         st.header("Lead Assignment Queue - Unassigned, Highest Priority First")
         queue = leads[leads["Assigned_Rep_ID"].isna()] if "Assigned_Rep_ID" in leads.columns else leads
-        queue = queue.sort_values("priority_score", ascending=False)
+        queue = queue.sort_values("score", ascending=False)
         st.dataframe(queue.head(50))
 
     # Tab 6: Download Cleaned Data
