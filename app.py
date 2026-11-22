@@ -153,12 +153,6 @@ if leads_file and reps_file:
         lead_info = leads[leads["Lead_ID"] == selected_lead_id]
         st.markdown("**Lead Details:**")
         st.dataframe(lead_info)
-        # Pie: Assigned/unassigned
-        assigned = leads["Assigned_Rep_ID"].notna().sum() if "Assigned_Rep_ID" in leads.columns else 0
-        unassigned = leads["Assigned_Rep_ID"].isna().sum() if "Assigned_Rep_ID" in leads.columns else leads.shape[0]
-        pie1 = go.Figure(go.Pie(labels=['Assigned', 'Unassigned'], values=[assigned, unassigned], textinfo='percent+label'))
-        pie1.update_layout(title="Lead Assignment Breakdown")
-        st.plotly_chart(pie1)
         # Pie: priority
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
