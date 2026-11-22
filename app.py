@@ -174,18 +174,6 @@ with tab2:
         if "assigned" not in st.session_state:
             st.session_state.assigned = False
 
-        if not st.session_state.assigned and unassigned_count > 0:
-            st.markdown("### Assign Leads to Reps (Fast!)")
-            if st.button("Assign All Unassigned Leads"):
-                new_leads = fast_assign(leads, reps)
-                st.session_state.leads = new_leads
-                st.session_state.assigned = True
-                st.success("Leads assigned! Refresh tabs to see updates.")
-        elif st.session_state.assigned:
-            st.info("Leads have been assigned. Assignment can only be done once.")
-        elif unassigned_count == 0:
-            st.info("All leads are already assigned.")
-
         # --- Priority distribution pie chart (SECOND chart) ---
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(
