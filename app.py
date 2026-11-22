@@ -44,8 +44,12 @@ REP_REQUIRED = {
 }
 
 
-# HEADER_ALIASES = {
-    # Leads
+# ============================================================
+# COLUMN HEADER ALIASES
+# ============================================================
+
+HEADER_ALIASES = {
+    # Lead columns
     "leadid": "Lead_ID",
     "companyname": "Company_Name",
     "industryvertical": "Industry_Vertical",
@@ -53,53 +57,22 @@ REP_REQUIRED = {
     "recentactivity": "Recent_Activity",
     "vipreferral": "VIP_Referral",
 
-    # Representatives
+    # Representative columns
     "repid": "Rep_ID",
     "name": "Name",
-    "industryverticalexpertise": "Industry_Vertical_Expertise",
+    "industryverticalexpertise":
+        "Industry_Vertical_Expertise",
     "currentcapacity": "Current_Capacity",
     "maxcapacity": "Max_Capacity",
 
-    # Shared
+    # Shared columns
     "region": "Region",
     "language": "Language",
 }
 
 
-def clean_column_names(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Clean all CSV column headers."""
-
-    data = dataframe.copy()
-
-    header_keys = (
-        pd.Index(data.columns)
-        .astype("string")
-        .str.replace("\ufeff", "", regex=False)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"[^a-z0-9]+", "", regex=True)
-    )
-
-    cleaned_headers = [
-        HEADER_ALIASES.get(key, original.strip())
-        for key, original in zip(
-            header_keys,
-            data.columns.astype(str),
-        )
-    ]
-
-    if len(cleaned_headers) != len(set(cleaned_headers)):
-        raise ValueError(
-            "The file contains duplicate columns after "
-            "the headers were cleaned."
-        )
-
-    data.columns = cleaned_headers
-
-    return data
-    
-============================================================
-# NORMALIZATION DICTIONARIES
+# ============================================================
+# DATA NORMALIZATION DICTIONARIES
 # ============================================================
 
 REGION_ALIASES = {
@@ -116,7 +89,9 @@ REGION_ALIASES = {
     "nortamerica": "north america",
     "northamer": "north america",
 
-    "asiapacificeurope": "asia pacific and europe",
+    "asiapacificeurope":
+        "asia pacific and europe",
+
     "northamericaasiapacific":
         "north america and asia pacific",
 }
@@ -136,25 +111,44 @@ ACTIVITY_ALIASES = {
     "na": "N/A",
     "unknown": "Unknown",
 
-    "subscribed": "Subscribed To Blog",
-    "subscribedtoblog": "Subscribed To Blog",
+    "subscribed":
+        "Subscribed To Blog",
 
-    "downloadedwhitepaper": "Downloaded Whitepaper",
-    "requestedlivedemo": "Requested Live Demo",
-    "openedmarketingemail": "Opened Marketing Email",
-    "contactsales": "Contact Sales",
-    "visitedpricingpage": "Visited Pricing Page",
-    "startedfreetrial": "Started Free Trial",
-    "attendedwebinar": "Attended Webinar",
+    "subscribedtoblog":
+        "Subscribed To Blog",
+
+    "downloadedwhitepaper":
+        "Downloaded Whitepaper",
+
+    "requestedlivedemo":
+        "Requested Live Demo",
+
+    "openedmarketingemail":
+        "Opened Marketing Email",
+
+    "contactsales":
+        "Contact Sales",
+
+    "visitedpricingpage":
+        "Visited Pricing Page",
+
+    "startedfreetrial":
+        "Started Free Trial",
+
+    "attendedwebinar":
+        "Attended Webinar",
 }
 
 ACTIVITY_POINTS = {
     "Requested Live Demo": 35,
     "Contact Sales": 35,
+
     "Attended Webinar": 25,
     "Started Free Trial": 25,
+
     "Downloaded Whitepaper": 15,
     "Visited Pricing Page": 10,
+
     "Subscribed To Blog": 5,
 }
 
@@ -173,19 +167,110 @@ PRIORITY_RANK = {
 
 
 # ============================================================
-# GENERAL TEXT CLEANING
+# COLUMN HEADER CLEANING
 # ============================================================
 
-def normalize_text_series(
+def clean_column_names(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Standardize CSV column names.
+
+    Examples:
+        Lead ID -> Lead_ID
+        Lead-ID -> Lead_ID
+        lead_id -> Lead_ID
+    """
+
+    data = dataframe.copy()
+
+    original_headers = (
+        pd.Index(data.columns)
+        .astype("string")
+        .str.replace(
+            "\ufeff",
+            "",
+            regex=False,
+        )
+        .str.strip()
+    )
+
+    header_keys = (
+        original_headers
+        .str.lower()
+        .str.replace(
+            r"[^a-z0-9]+",
+            "",
+            regex=True,
+        )
+    )
+
+    cleaned_headers = [
+        HEADER_ALIASES.get(
+            key,
+            original,
+        )
+        for key, original in zip(
+            header_keys,
+            original_headers,
+        )
+    ]
+
+    if len(cleaned_headers) != len(
+        set(cleaned_headers)
+    ):
+        raise ValueError(
+            "The CSV contains duplicate columns after "
+            "the column headers were cleaned."
+        )
+
+    data.columns = cleaned_headers
+
+    return data
+
+
+def validate_required_columns(
+    dataframe: pd.DataFrame,
+    required_columns: set[str],
+    file_name: str,
+) -> None:
+    """Check whether a CSV contains its required columns."""
+
+    missing_columns = (
+        required_columns
+        - set(dataframe.columns)
+    )
+
+    if missing_columns:
+        missing_text = ", ".join(
+            sorted(missing_columns)
+        )
+
+        found_text = ", ".join(
+            str(column)
+            for column in dataframe.columns
+        )
+
+        raise ValueError(
+            f"{file_name} is missing required columns: "
+            f"{missing_text}. Columns found: {found_text}"
+        )
+
+
+# ============================================================
+# GENERAL COLUMN CLEANING FUNCTIONS
+# ============================================================
+
+def normalize_text_column(
     series: pd.Series,
 ) -> pd.Series:
     """
-    Clean an entire text column.
+    Clean a complete pandas text column.
 
     This:
     - Preserves missing values
     - Removes outside spaces
-    - Changes text to lowercase
+    - Converts text to lowercase
     - Replaces repeated spaces with one space
     """
 
@@ -207,20 +292,20 @@ def normalize_text_series(
     )
 
 
-def normalize_key_series(
+def normalize_key_column(
     series: pd.Series,
 ) -> pd.Series:
     """
-    Remove spaces and punctuation from an entire column.
+    Prepare an entire column for dictionary matching.
 
     Examples:
-        "Asia-Pacific" -> "asiapacific"
-        "Asia Pacific" -> "asiapacific"
-        "Asia.Pacific" -> "asiapacific"
+        Asia-Pacific -> asiapacific
+        Asia Pacific -> asiapacific
+        Asia.Pacific -> asiapacific
     """
 
     return (
-        normalize_text_series(series)
+        normalize_text_column(series)
         .str.replace(
             r"[^a-z0-9]+",
             "",
@@ -229,8 +314,48 @@ def normalize_key_series(
     )
 
 
-def clean_text(value: Any) -> str:
-    """Clean one text value for comparisons."""
+def clean_mapped_column(
+    series: pd.Series,
+    mapping: dict[str, str],
+    default: str,
+    preserve_unknown: bool = False,
+) -> pd.Series:
+    """
+    Clean an entire column and apply a normalization
+    dictionary.
+    """
+
+    cleaned_text = normalize_text_column(
+        series
+    )
+
+    cleaned_keys = normalize_key_column(
+        series
+    )
+
+    mapped_values = cleaned_keys.map(
+        mapping
+    )
+
+    if preserve_unknown:
+        mapped_values = mapped_values.fillna(
+            cleaned_text
+        )
+
+    return (
+        mapped_values
+        .fillna(default)
+        .astype("string")
+    )
+
+
+def clean_text_value(value: Any) -> str:
+    """
+    Clean one value for assignment comparisons.
+
+    The assignment process is sequential, so individual
+    values must be compared while capacity is changing.
+    """
 
     if pd.isna(value):
         return ""
@@ -250,7 +375,7 @@ def clean_company_size_column(
     series: pd.Series,
 ) -> pd.Series:
     """
-    Convert an entire company-size column to numbers.
+    Clean the complete Company_Size column.
 
     Examples:
         500   -> 500
@@ -261,56 +386,121 @@ def clean_company_size_column(
 
     text = (
         normalize_text_column(series)
-        .str.replace(",", "", regex=False)
-        .str.replace(" ", "", regex=False)
+        .str.replace(
+            ",",
+            "",
+            regex=False,
+        )
+        .str.replace(
+            " ",
+            "",
+            regex=False,
+        )
     )
 
-    numbers = pd.to_numeric(
+    extracted_numbers = (
         text.str.extract(
             r"([0-9]*\.?[0-9]+)",
             expand=False,
-        ),
+        )
+    )
+
+    numbers = pd.to_numeric(
+        extracted_numbers,
         errors="coerce",
     )
 
     multipliers = np.where(
-        text.str.endswith("k", na=False),
+        text.str.endswith(
+            "k",
+            na=False,
+        ),
         1000,
         1,
     )
 
+    result = numbers * multipliers
+
     return (
-        numbers
-        .mul(multipliers)
+        result
         .round()
         .astype("Float64")
     )
 
 
 # ============================================================
-# LEAD DATA CLEANING
+# COMPANY SIZE FILTER GROUPS
+# ============================================================
+
+def company_size_groups(
+    series: pd.Series,
+) -> pd.Series:
+    """
+    Categorize the entire Company_Size column for filtering.
+    """
+
+    conditions = [
+        series.isna(),
+        series.lt(100).fillna(False),
+        series.lt(1000).fillna(False),
+    ]
+
+    choices = [
+        "Missing",
+        "Under 100",
+        "100–999",
+    ]
+
+    groups = np.select(
+        conditions,
+        choices,
+        default="1,000+",
+    )
+
+    return pd.Series(
+        groups,
+        index=series.index,
+        dtype="string",
+    )
+
+
+# ============================================================
+# LEAD CLEANING
 # ============================================================
 
 def normalize_leads(
     dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Clean the leads DataFrame using column operations."""
+    """Clean the leads table using pandas columns."""
 
     data = dataframe.copy()
 
+    validate_required_columns(
+        data,
+        LEAD_REQUIRED,
+        "Leads CSV",
+    )
+
+    # Clean the complete Lead_ID column.
     data["Lead_ID"] = (
         data["Lead_ID"]
         .astype("string")
         .str.strip()
     )
 
+    # Clean the complete Company_Name column.
     data["Company_Name"] = (
         data["Company_Name"]
         .astype("string")
         .str.strip()
-        .str.replace(r"\s+", " ", regex=True)
+        .str.replace(
+            r"\s+",
+            " ",
+            regex=True,
+        )
     )
 
+    # Standardize the complete Region column.
     data["Region"] = clean_mapped_column(
         data["Region"],
         REGION_ALIASES,
@@ -318,12 +508,15 @@ def normalize_leads(
         preserve_unknown=True,
     )
 
+    # Standardize the complete Language column.
     data["Language"] = clean_mapped_column(
         data["Language"],
         LANGUAGE_ALIASES,
         default="N/A",
+        preserve_unknown=False,
     )
 
+    # Clean the complete industry column.
     data["Industry_Vertical"] = (
         normalize_text_column(
             data["Industry_Vertical"]
@@ -332,17 +525,25 @@ def normalize_leads(
         .astype("string")
     )
 
-    data["Company_Size"] = clean_company_size_column(
-        data["Company_Size"]
+    # Convert the complete company-size column to numbers.
+    data["Company_Size"] = (
+        clean_company_size_column(
+            data["Company_Size"]
+        )
     )
 
-    data["Recent_Activity"] = clean_mapped_column(
-        data["Recent_Activity"],
-        ACTIVITY_ALIASES,
-        default="Unknown",
-        preserve_unknown=True,
-    ).str.title()
+    # Standardize the complete activity column.
+    data["Recent_Activity"] = (
+        clean_mapped_column(
+            data["Recent_Activity"],
+            ACTIVITY_ALIASES,
+            default="Unknown",
+            preserve_unknown=True,
+        )
+        .str.title()
+    )
 
+    # Standardize the complete VIP column.
     vip_values = normalize_text_column(
         data["VIP_Referral"]
     )
@@ -350,9 +551,11 @@ def normalize_leads(
     data["VIP_Referral"] = (
         vip_values
         .where(
-            vip_values.isin(
-                ["true", "false", "unknown"]
-            ),
+            vip_values.isin({
+                "true",
+                "false",
+                "unknown",
+            }),
             "unknown",
         )
         .fillna("unknown")
@@ -363,22 +566,33 @@ def normalize_leads(
 
 
 # ============================================================
-# REPRESENTATIVE DATA CLEANING
+# REPRESENTATIVE CLEANING
 # ============================================================
 
 def normalize_reps(
     dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Clean the representatives DataFrame using column operations."""
+    """Clean the representative table using pandas columns."""
 
     data = dataframe.copy()
 
+    validate_required_columns(
+        data,
+        REP_REQUIRED,
+        "Sales representatives CSV",
+    )
+
+    # Clean all representative IDs.
     data["Rep_ID"] = (
         data["Rep_ID"]
         .astype("string")
         .str.strip()
     )
 
+    # Remove parenthetical information from every name.
+    #
+    # Example:
+    # Maria Fernandez (West) -> Maria Fernandez
     data["Name"] = (
         data["Name"]
         .astype("string")
@@ -387,11 +601,16 @@ def normalize_reps(
             " ",
             regex=True,
         )
-        .str.replace(r"\s+", " ", regex=True)
+        .str.replace(
+            r"\s+",
+            " ",
+            regex=True,
+        )
         .str.strip()
         .fillna("")
     )
 
+    # Standardize all representative regions.
     data["Region"] = clean_mapped_column(
         data["Region"],
         REGION_ALIASES,
@@ -399,12 +618,15 @@ def normalize_reps(
         preserve_unknown=True,
     )
 
+    # Standardize all representative languages.
     data["Language"] = clean_mapped_column(
         data["Language"],
         LANGUAGE_ALIASES,
         default="N/A",
+        preserve_unknown=False,
     )
 
+    # Clean all industry-expertise values.
     data["Industry_Vertical_Expertise"] = (
         normalize_text_column(
             data["Industry_Vertical_Expertise"]
@@ -413,6 +635,7 @@ def normalize_reps(
         .astype("string")
     )
 
+    # Convert the complete current-capacity column to numbers.
     data["Current_Capacity"] = (
         pd.to_numeric(
             data["Current_Capacity"],
@@ -424,6 +647,7 @@ def normalize_reps(
         .astype("Int64")
     )
 
+    # Convert the complete maximum-capacity column to numbers.
     data["Max_Capacity"] = (
         pd.to_numeric(
             data["Max_Capacity"],
@@ -435,16 +659,29 @@ def normalize_reps(
         .astype("Int64")
     )
 
-    maximum = data["Max_Capacity"].astype("Float64")
-    current = data["Current_Capacity"].astype("Float64")
+    maximum = (
+        data["Max_Capacity"]
+        .astype("Float64")
+    )
 
+    current = (
+        data["Current_Capacity"]
+        .astype("Float64")
+    )
+
+    # Calculate utilization for the complete table.
     data["Capacity_Utilization"] = (
         current
-        .div(maximum.where(maximum > 0))
+        .div(
+            maximum.where(
+                maximum > 0
+            )
+        )
         .fillna(1.0)
         .clip(lower=0)
     )
 
+    # Calculate remaining capacity for the complete table.
     data["Available_Capacity"] = (
         data["Max_Capacity"]
         - data["Current_Capacity"]
@@ -456,97 +693,25 @@ def normalize_reps(
 # ============================================================
 # LEAD SCORING AND SORTING
 # ============================================================
-def normalize_reps(
-    dataframe: pd.DataFrame,
+
+def score_leads(
+    leads: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Clean the representatives DataFrame using column operations."""
+    """Score and sort all leads using pandas columns."""
 
-    data = dataframe.copy()
+    data = leads.copy()
 
-    data["Rep_ID"] = (
-        data["Rep_ID"]
-        .astype("string")
-        .str.strip()
+    score = pd.Series(
+        0,
+        index=data.index,
+        dtype="int64",
     )
-
-    data["Name"] = (
-        data["Name"]
-        .astype("string")
-        .str.replace(
-            r"\s*\([^)]*\)\s*",
-            " ",
-            regex=True,
-        )
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
-        .fillna("")
-    )
-
-    data["Region"] = clean_mapped_column(
-        data["Region"],
-        REGION_ALIASES,
-        default="N/A",
-        preserve_unknown=True,
-    )
-
-    data["Language"] = clean_mapped_column(
-        data["Language"],
-        LANGUAGE_ALIASES,
-        default="N/A",
-    )
-
-    data["Industry_Vertical_Expertise"] = (
-        normalize_text_column(
-            data["Industry_Vertical_Expertise"]
-        )
-        .fillna("unknown")
-        .astype("string")
-    )
-
-    data["Current_Capacity"] = (
-        pd.to_numeric(
-            data["Current_Capacity"],
-            errors="coerce",
-        )
-        .fillna(0)
-        .clip(lower=0)
-        .round()
-        .astype("Int64")
-    )
-
-    data["Max_Capacity"] = (
-        pd.to_numeric(
-            data["Max_Capacity"],
-            errors="coerce",
-        )
-        .fillna(0)
-        .clip(lower=0)
-        .round()
-        .astype("Int64")
-    )
-
-    maximum = data["Max_Capacity"].astype("Float64")
-    current = data["Current_Capacity"].astype("Float64")
-
-    data["Capacity_Utilization"] = (
-        current
-        .div(maximum.where(maximum > 0))
-        .fillna(1.0)
-        .clip(lower=0)
-    )
-
-    data["Available_Capacity"] = (
-        data["Max_Capacity"]
-        - data["Current_Capacity"]
-    ).clip(lower=0)
-
-    return data
 
     # --------------------------------------------------------
     # COMPANY SIZE POINTS
     # --------------------------------------------------------
 
-    company_size_points = np.select(
+    company_points = np.select(
         [
             data["Company_Size"]
             .ge(1000)
@@ -570,10 +735,10 @@ def normalize_reps(
         default=0,
     )
 
-    score += company_size_points
+    score += company_points
 
     # --------------------------------------------------------
-    # RECENT ACTIVITY POINTS
+    # ACTIVITY POINTS
     # --------------------------------------------------------
 
     score += (
@@ -587,15 +752,9 @@ def normalize_reps(
     # INDUSTRY POINTS
     # --------------------------------------------------------
 
-    industry_points = {
-        "technology": 15,
-        "healthcare": 10,
-        "finance": 10,
-    }
-
     score += (
         data["Industry_Vertical"]
-        .map(industry_points)
+        .map(INDUSTRY_POINTS)
         .fillna(0)
         .astype("int64")
     )
@@ -604,14 +763,14 @@ def normalize_reps(
     # VIP OVERRIDE
     # --------------------------------------------------------
 
-    is_vip = (
+    vip_mask = (
         data["VIP_Referral"]
         .eq("true")
         .fillna(False)
     )
 
     data["Score"] = score.mask(
-        is_vip,
+        vip_mask,
         100,
     )
 
@@ -621,9 +780,9 @@ def normalize_reps(
 
     data["Priority"] = np.select(
         [
-            data["Score"] >= 85,
-            data["Score"] >= 60,
-            data["Score"] >= 40,
+            data["Score"].ge(85),
+            data["Score"].ge(60),
+            data["Score"].ge(40),
         ],
         [
             "critical",
@@ -633,17 +792,14 @@ def normalize_reps(
         default="low",
     )
 
-    # Create a temporary numeric priority rank.
+    # Create a temporary numeric priority column for sorting.
     data["_Priority_Rank"] = (
         data["Priority"]
         .map(PRIORITY_RANK)
         .fillna(0)
     )
 
-    # Sort by:
-    # 1. Priority
-    # 2. Score
-    # 3. Lead ID
+    # Sort by priority, score, and lead ID.
     data = (
         data.sort_values(
             by=[
@@ -672,24 +828,73 @@ def normalize_reps(
 # ============================================================
 
 def capacity_ratio(
-    rep: pd.Series,
+    current_capacity: float,
+    max_capacity: float,
 ) -> float:
-    """Calculate a representative's capacity utilization."""
+    """Calculate one rep's capacity utilization."""
 
-    maximum = float(
-        rep["Max_Capacity"]
-    )
-
-    current = float(
-        rep["Current_Capacity"]
-    )
-
-    if maximum <= 0:
+    if max_capacity <= 0:
         return 1.0
 
     return min(
-        current / maximum,
+        current_capacity / max_capacity,
         1.0,
+    )
+
+
+# ============================================================
+# REGION MATCHING
+# ============================================================
+
+def regions_overlap(
+    lead_region: Any,
+    rep_region: Any,
+) -> bool:
+    """
+    Check whether two region values overlap.
+
+    Example:
+        europe matches asia pacific and europe
+    """
+
+    lead_value = clean_text_value(
+        lead_region
+    )
+
+    rep_value = clean_text_value(
+        rep_region
+    )
+
+    invalid_values = {
+        "",
+        "n/a",
+        "unknown",
+        "none",
+        "nan",
+    }
+
+    if (
+        lead_value in invalid_values
+        or rep_value in invalid_values
+    ):
+        return False
+
+    lead_regions = {
+        region.strip()
+        for region in lead_value.split(" and ")
+        if region.strip()
+    }
+
+    rep_regions = {
+        region.strip()
+        for region in rep_value.split(" and ")
+        if region.strip()
+    }
+
+    return bool(
+        lead_regions.intersection(
+            rep_regions
+        )
     )
 
 
@@ -704,11 +909,8 @@ def match_and_assign(
     """
     Assign leads in descending priority order.
 
-    Representatives are ranked by:
-        1. Number of matching attributes
-        2. Lowest capacity utilization
-        3. Highest available capacity
-        4. Original representative order
+    Matching is sequential because assigning one lead changes
+    the representative's capacity for the next lead.
     """
 
     # Score and sort leads before assignment.
@@ -737,7 +939,7 @@ def match_and_assign(
                 rep["Current_Capacity"]
             )
 
-            # Skip representatives who have no capacity.
+            # Skip reps with no remaining capacity.
             if (
                 max_capacity <= 0
                 or current_capacity >= max_capacity
@@ -746,48 +948,64 @@ def match_and_assign(
 
             matched_fields = []
 
-            for lead_column, rep_column, label in (
-                (
-                    "Region",
-                    "Region",
-                    "region",
-                ),
-                (
-                    "Language",
-                    "Language",
-                    "language",
-                ),
-                (
-                    "Industry_Vertical",
-                    "Industry_Vertical_Expertise",
-                    "industry",
-                ),
+            # Region match
+            if regions_overlap(
+                lead["Region"],
+                rep["Region"],
             ):
-                lead_value = clean_text(
-                    lead[lead_column]
+                matched_fields.append(
+                    "region"
                 )
 
-                rep_value = clean_text(
-                    rep[rep_column]
+            # Language match
+            lead_language = clean_text_value(
+                lead["Language"]
+            )
+
+            rep_language = clean_text_value(
+                rep["Language"]
+            )
+
+            invalid_values = {
+                "",
+                "n/a",
+                "unknown",
+                "none",
+                "nan",
+            }
+
+            if (
+                lead_language not in invalid_values
+                and rep_language not in invalid_values
+                and lead_language == rep_language
+            ):
+                matched_fields.append(
+                    "language"
                 )
 
-                invalid_values = {
-                    "",
-                    "n/a",
-                    "unknown",
-                    "none",
-                    "nan",
-                }
+            # Industry match
+            lead_industry = clean_text_value(
+                lead["Industry_Vertical"]
+            )
 
-                if (
-                    lead_value not in invalid_values
-                    and rep_value not in invalid_values
-                    and lead_value == rep_value
-                ):
-                    matched_fields.append(label)
+            rep_industry = clean_text_value(
+                rep[
+                    "Industry_Vertical_Expertise"
+                ]
+            )
+
+            if (
+                lead_industry not in invalid_values
+                and rep_industry not in invalid_values
+                and lead_industry == rep_industry
+            ):
+                matched_fields.append(
+                    "industry"
+                )
 
             utilization = capacity_ratio(
-                rep
+                current_capacity,
+                max_capacity,
             )
 
             remaining_capacity = (
@@ -795,7 +1013,7 @@ def match_and_assign(
                 - current_capacity
             )
 
-            # Larger tuple values win.
+            # Larger tuple values are preferred.
             ranking = (
                 len(matched_fields),
                 -utilization,
@@ -829,7 +1047,9 @@ def match_and_assign(
                 chosen_index,
                 "Current_Capacity",
             ] = (
-                int(chosen["Current_Capacity"])
+                int(
+                    chosen["Current_Capacity"]
+                )
                 + 1
             )
 
@@ -867,7 +1087,7 @@ def match_and_assign(
         axis=1,
     )
 
-    # Keep the final result in priority order.
+    # Sort the final lead results.
     result["_Priority_Rank"] = (
         result["Priority"]
         .map(PRIORITY_RANK)
@@ -894,7 +1114,7 @@ def match_and_assign(
         .reset_index(drop=True)
     )
 
-    # Make sure final capacity is numeric.
+    # Recalculate representative capacity by columns.
     roster["Current_Capacity"] = (
         pd.to_numeric(
             roster["Current_Capacity"],
@@ -905,23 +1125,33 @@ def match_and_assign(
         .astype("Int64")
     )
 
-    # Calculate final utilization.
-    roster["Capacity_Utilization"] = np.where(
-        roster["Max_Capacity"] > 0,
-        (
-            roster["Current_Capacity"]
-            / roster["Max_Capacity"]
-        ),
-        1.0,
+    maximum = (
+        roster["Max_Capacity"]
+        .astype("Float64")
     )
 
-    # Calculate remaining capacity.
+    current = (
+        roster["Current_Capacity"]
+        .astype("Float64")
+    )
+
+    roster["Capacity_Utilization"] = (
+        current
+        .div(
+            maximum.where(
+                maximum > 0
+            )
+        )
+        .fillna(1.0)
+        .clip(lower=0)
+    )
+
     roster["Available_Capacity"] = (
         roster["Max_Capacity"]
         - roster["Current_Capacity"]
     ).clip(lower=0)
 
-    # Sort reps with the lowest utilization first.
+    # Sort representatives by lowest utilization first.
     roster = (
         roster.sort_values(
             by=[
@@ -943,34 +1173,71 @@ def match_and_assign(
 
 
 # ============================================================
-# DOWNLOAD AND DISPLAY HELPERS
+# DOWNLOAD HELPER
 # ============================================================
 
 def csv_bytes(
-    frame: pd.DataFrame,
+    dataframe: pd.DataFrame,
 ) -> bytes:
     """Convert a DataFrame into downloadable CSV bytes."""
 
-    return frame.to_csv(
+    return dataframe.to_csv(
         index=False,
     ).encode("utf-8-sig")
 
 
-def company_size_group(
-    value: Any,
-) -> str:
-    """Convert company size into a filter category."""
+# ============================================================
+# CACHED FILE PROCESSING
+# ============================================================
 
-    if pd.isna(value):
-        return "Missing"
+@st.cache_data(
+    show_spinner="Cleaning lead data..."
+)
+def process_lead_file(
+    file_bytes: bytes,
+) -> pd.DataFrame:
+    """Read and clean a leads CSV with pandas."""
 
-    if value < 100:
-        return "Under 100"
+    data = pd.read_csv(
+        pd.io.common.BytesIO(
+            file_bytes
+        )
+    )
 
-    if value < 1000:
-        return "100–999"
+    data = clean_column_names(
+        data
+    )
 
-    return "1,000+"
+    data = normalize_leads(
+        data
+    )
+
+    return data
+
+
+@st.cache_data(
+    show_spinner="Cleaning representative data..."
+)
+def process_rep_file(
+    file_bytes: bytes,
+) -> pd.DataFrame:
+    """Read and clean a representatives CSV with pandas."""
+
+    data = pd.read_csv(
+        pd.io.common.BytesIO(
+            file_bytes
+        )
+    )
+
+    data = clean_column_names(
+        data
+    )
+
+    data = normalize_reps(
+        data
+    )
+
+    return data
 
 
 # ============================================================
@@ -1018,60 +1285,31 @@ if not lead_file or not rep_file:
 
 
 # ============================================================
-# READ FILES
+# READ AND CLEAN FILES WITH PANDAS
 # ============================================================
 
 try:
-    raw_leads = clean_column_names(
-        pd.read_csv(lead_file)
+    leads_clean = process_lead_file(
+        lead_file.getvalue()
     )
 
-    raw_reps = clean_column_names(
-        pd.read_csv(rep_file)
+    reps_clean = process_rep_file(
+        rep_file.getvalue()
     )
 
 except (
     UnicodeDecodeError,
     pd.errors.ParserError,
     ValueError,
-) as exc:
+    KeyError,
+) as error:
     st.error(
-        f"Could not read one of the CSV files: {exc}"
+        f"Could not process one of the CSV files: {error}"
     )
     st.stop()
 
 
-# ============================================================
-# CHECK REQUIRED COLUMNS
-# ============================================================
-
-missing_leads = sorted(
-    LEAD_REQUIRED
-    - set(raw_leads.columns)
-)
-
-missing_reps = sorted(
-    REP_REQUIRED
-    - set(raw_reps.columns)
-)
-
-if missing_leads or missing_reps:
-    if missing_leads:
-        st.error(
-            "Leads CSV is missing required columns: "
-            + ", ".join(missing_leads)
-        )
-
-    if missing_reps:
-        st.error(
-            "Sales reps CSV is missing required columns: "
-            + ", ".join(missing_reps)
-        )
-
-    st.stop()
-
-
-if raw_leads.empty or raw_reps.empty:
+if leads_clean.empty or reps_clean.empty:
     st.error(
         "Both files must contain at least one data row."
     )
@@ -1079,16 +1317,8 @@ if raw_leads.empty or raw_reps.empty:
 
 
 # ============================================================
-# CLEAN, SCORE, AND ASSIGN
+# SCORE AND ASSIGN
 # ============================================================
-
-leads_clean = normalize_leads(
-    raw_leads
-)
-
-reps_clean = normalize_reps(
-    raw_reps
-)
 
 matched, final_roster = match_and_assign(
     leads_clean,
@@ -1108,7 +1338,7 @@ st.success(
 assigned_mask = (
     matched["Assigned_Rep_ID"]
     .fillna("")
-    .astype(str)
+    .astype("string")
     .str.strip()
     .ne("")
 )
@@ -1121,7 +1351,7 @@ unassigned_count = int(
     (~assigned_mask).sum()
 )
 
-critical = int(
+critical_count = int(
     matched["Priority"]
     .eq("critical")
     .sum()
@@ -1136,7 +1366,7 @@ col1.metric(
 
 col2.metric(
     "Critical priority",
-    f"{critical:,}",
+    f"{critical_count:,}",
 )
 
 col3.metric(
@@ -1167,7 +1397,9 @@ results_tab, queue_tab = st.tabs(
 # ============================================================
 
 with results_tab:
-    st.subheader("Filter and sort leads")
+    st.subheader(
+        "Filter and sort leads"
+    )
 
     tracker_col, chart_col = st.columns(
         [2, 1]
@@ -1176,12 +1408,17 @@ with results_tab:
     with tracker_col:
         filter1, filter2, filter3 = st.columns(3)
 
+        # ----------------------------------------------------
+        # LANGUAGE FILTER
+        # ----------------------------------------------------
+
         with filter1:
             languages = sorted(
                 matched["Language"]
                 .fillna("N/A")
                 .astype(str)
                 .unique()
+                .tolist()
             )
 
             language_filter = st.selectbox(
@@ -1189,12 +1426,17 @@ with results_tab:
                 ["All"] + languages,
             )
 
+        # ----------------------------------------------------
+        # INDUSTRY FILTER
+        # ----------------------------------------------------
+
         with filter2:
             industries = sorted(
                 matched["Industry_Vertical"]
                 .fillna("unknown")
                 .astype(str)
                 .unique()
+                .tolist()
             )
 
             industry_filter = st.selectbox(
@@ -1202,10 +1444,13 @@ with results_tab:
                 ["All"] + industries,
             )
 
+        # ----------------------------------------------------
+        # COMPANY SIZE FILTER
+        # ----------------------------------------------------
+
         with filter3:
-            size_groups = (
+            all_size_groups = company_size_groups(
                 matched["Company_Size"]
-                .map(company_size_group)
             )
 
             size_options = [
@@ -1216,9 +1461,9 @@ with results_tab:
             ]
 
             available_sizes = [
-                size
-                for size in size_options
-                if size in size_groups.values
+                group
+                for group in size_options
+                if group in all_size_groups.values
             ]
 
             size_filter = st.selectbox(
@@ -1226,30 +1471,44 @@ with results_tab:
                 ["All"] + available_sizes,
             )
 
+        # ----------------------------------------------------
+        # APPLY COLUMN FILTERS
+        # ----------------------------------------------------
+
         filtered = matched.copy()
 
         if language_filter != "All":
-            filtered = filtered[
-                filtered["Language"]
-                .fillna("N/A")
-                .astype(str)
-                == language_filter
+            filtered = filtered.loc[
+                filtered["Language"].eq(
+                    language_filter
+                )
             ]
 
         if industry_filter != "All":
-            filtered = filtered[
-                filtered["Industry_Vertical"]
-                .fillna("unknown")
-                .astype(str)
-                == industry_filter
+            filtered = filtered.loc[
+                filtered[
+                    "Industry_Vertical"
+                ].eq(
+                    industry_filter
+                )
             ]
 
         if size_filter != "All":
-            filtered = filtered[
-                filtered["Company_Size"]
-                .map(company_size_group)
-                == size_filter
+            filtered_size_groups = (
+                company_size_groups(
+                    filtered["Company_Size"]
+                )
+            )
+
+            filtered = filtered.loc[
+                filtered_size_groups.eq(
+                    size_filter
+                )
             ]
+
+        # ----------------------------------------------------
+        # SORTING MENU
+        # ----------------------------------------------------
 
         sort_by = st.selectbox(
             "Sort by",
@@ -1260,6 +1519,10 @@ with results_tab:
                 "Company size",
             ],
         )
+
+        # ----------------------------------------------------
+        # APPLY COLUMN SORTING
+        # ----------------------------------------------------
 
         if sort_by == "Company size":
             filtered = filtered.sort_values(
@@ -1278,12 +1541,12 @@ with results_tab:
             )
 
         elif sort_by == "Priority score":
-            filtered = filtered.copy()
-
-            filtered["_Priority_Rank"] = (
-                filtered["Priority"]
-                .map(PRIORITY_RANK)
-                .fillna(0)
+            filtered = filtered.assign(
+                _Priority_Rank=(
+                    filtered["Priority"]
+                    .map(PRIORITY_RANK)
+                    .fillna(0)
+                )
             )
 
             filtered = (
@@ -1305,15 +1568,10 @@ with results_tab:
                 )
             )
 
-        else:
-            sort_column = {
-                "Language": "Language",
-                "Industry": "Industry_Vertical",
-            }[sort_by]
-
+        elif sort_by == "Language":
             filtered = filtered.sort_values(
                 by=[
-                    sort_column,
+                    "Language",
                     "Score",
                     "Lead_ID",
                 ],
@@ -1326,12 +1584,35 @@ with results_tab:
                 kind="stable",
             )
 
+        elif sort_by == "Industry":
+            filtered = filtered.sort_values(
+                by=[
+                    "Industry_Vertical",
+                    "Score",
+                    "Lead_ID",
+                ],
+                ascending=[
+                    True,
+                    False,
+                    True,
+                ],
+                na_position="last",
+                kind="stable",
+            )
+
+        filtered = filtered.reset_index(
+            drop=True
+        )
+
         st.caption(
             f"Showing {len(filtered):,} "
             f"of {len(matched):,} leads."
         )
 
-        # Compact lead tracker
+        # ----------------------------------------------------
+        # LEAD PREVIEW TABLE
+        # ----------------------------------------------------
+
         lead_preview = filtered[
             [
                 "Lead_ID",
@@ -1344,6 +1625,10 @@ with results_tab:
             use_container_width=True,
             hide_index=True,
         )
+
+        # ----------------------------------------------------
+        # SELECTED LEAD DETAILS
+        # ----------------------------------------------------
 
         if not lead_preview.empty:
             lead_options = (
@@ -1359,28 +1644,29 @@ with results_tab:
             )
 
             selected_lead = filtered.loc[
-                filtered["Lead_ID"].astype(str)
-                == selected_lead_id
+                filtered["Lead_ID"]
+                .astype(str)
+                .eq(selected_lead_id)
             ]
 
             if not selected_lead.empty:
                 with st.expander(
                     "Selected lead details"
                 ):
-                    st.json(
-                        selected_lead
-                        .iloc[0]
-                        .to_dict()
+                    st.dataframe(
+                        selected_lead,
+                        use_container_width=True,
+                        hide_index=True,
                     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # ASSIGNMENT PIE CHART
-    # --------------------------------------------------------
+    # ========================================================
 
     displayed_assigned = int(
         filtered["Assigned_Rep_ID"]
         .fillna("")
-        .astype(str)
+        .astype("string")
         .str.strip()
         .ne("")
         .sum()
@@ -1425,7 +1711,8 @@ with results_tab:
                             "type": "quantitative",
                         },
                         "color": {
-                            "field": "Assignment status",
+                            "field":
+                                "Assignment status",
                             "type": "nominal",
                             "scale": {
                                 "domain": [
@@ -1461,26 +1748,27 @@ with results_tab:
                 use_container_width=True,
             )
 
-        # ----------------------------------------------------
-        # REPRESENTATIVE SUMMARY
-        # ----------------------------------------------------
+        # ====================================================
+        # LEADS BY SALES REPRESENTATIVE
+        # ====================================================
+
+        assigned_rows = filtered.loc[
+            filtered["Assigned_Rep_ID"]
+            .fillna("")
+            .astype("string")
+            .str.strip()
+            .ne("")
+        ].copy()
+
+        assigned_rows["_Rep_ID_Key"] = (
+            assigned_rows["Assigned_Rep_ID"]
+            .astype("string")
+            .str.strip()
+        )
 
         rep_lead_counts = (
-            filtered.loc[
-                filtered["Assigned_Rep_ID"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .ne("")
-            ]
-            .assign(
-                _rep_id_key=lambda data: (
-                    data["Assigned_Rep_ID"]
-                    .astype(str)
-                    .str.strip()
-                )
-            )
-            .groupby("_rep_id_key")
+            assigned_rows
+            .groupby("_Rep_ID_Key")
             .size()
             .rename("Assigned Leads")
         )
@@ -1492,17 +1780,17 @@ with results_tab:
             ]
         ].copy()
 
-        rep_summary["_rep_id_key"] = (
+        rep_summary["_Rep_ID_Key"] = (
             rep_summary["Rep_ID"]
-            .astype(str)
+            .astype("string")
             .str.strip()
         )
 
         rep_summary["Assigned Leads"] = (
-            rep_summary["_rep_id_key"]
+            rep_summary["_Rep_ID_Key"]
             .map(rep_lead_counts)
             .fillna(0)
-            .astype(int)
+            .astype("int64")
         )
 
         rep_summary = (
@@ -1527,7 +1815,9 @@ with results_tab:
             .reset_index(drop=True)
         )
 
-        st.subheader("Leads by Sales Rep")
+        st.subheader(
+            "Leads by Sales Rep"
+        )
 
         st.dataframe(
             rep_summary[
@@ -1563,24 +1853,22 @@ with results_tab:
             selected_rep = final_roster.loc[
                 final_roster["Rep_ID"]
                 .astype(str)
-                == selected_rep_id
+                .eq(selected_rep_id)
             ]
 
             selected_rep_count = rep_summary.loc[
                 rep_summary["Rep_ID"]
                 .astype(str)
-                == selected_rep_id,
+                .eq(selected_rep_id),
                 "Assigned Leads",
             ]
 
             if not selected_rep.empty:
-                rep_details = (
-                    selected_rep
-                    .iloc[0]
-                    .to_dict()
+                displayed_rep = (
+                    selected_rep.copy()
                 )
 
-                rep_details[
+                displayed_rep[
                     "Assigned Leads (current filters)"
                 ] = int(
                     selected_rep_count.iloc[0]
@@ -1589,11 +1877,15 @@ with results_tab:
                 with st.expander(
                     "Selected rep details"
                 ):
-                    st.json(rep_details)
+                    st.dataframe(
+                        displayed_rep,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-    # --------------------------------------------------------
+    # ========================================================
     # DOWNLOAD BUTTONS
-    # --------------------------------------------------------
+    # ========================================================
 
     st.download_button(
         "Download displayed leads and assignments",
@@ -1628,7 +1920,7 @@ with queue_tab:
         .copy()
     )
 
-    # Guarantee priority order before assigning queue positions.
+    # Guarantee descending priority order.
     if not queue.empty:
         queue["_Priority_Rank"] = (
             queue["Priority"]
@@ -1666,7 +1958,10 @@ with queue_tab:
         queue.insert(
             0,
             "Queue Position",
-            range(1, len(queue) + 1),
+            range(
+                1,
+                len(queue) + 1,
+            ),
         )
 
         st.caption(
@@ -1710,7 +2005,7 @@ with st.expander(
         "healthcare/finance **10**.\n"
         "- Other priority bands: high **60–84**, "
         "medium **40–59**, low **0–39**.\n"
-        "- Rep assignment is a recommendation: exact region, "
+        "- Rep assignment is a recommendation: region, "
         "language, and industry matches rank first; ties "
         "prefer lower capacity utilization. Each rep is "
         "assigned no more than their positive Max_Capacity."
