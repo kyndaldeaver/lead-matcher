@@ -941,31 +941,6 @@ if cleaned_leads is not None:
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
-
-results_tab, representatives_tab, queue_tab = st.tabs([
-    "All leads",
-    "Representatives",
-    f"Assignment queue ({unassigned_count})",
-])
-
-with results_tab:
-    # Existing lead filtering and lead table code
-
-with representatives_tab:
-    st.subheader("Sales representatives")
-    st.dataframe(
-        final_roster,
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.download_button(
-        "Download updated rep capacities",
-        data=csv_bytes(final_roster),
-        file_name="sales_reps_updated_capacity.csv",
-        mime="text/csv",
-        key="download_rep_capacities",
-    )
-    
 with st.sidebar:
     if cleaned_reps is not None:
         st.divider()
