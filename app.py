@@ -179,9 +179,8 @@ if leads_file and reps_file:
             priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
             language_filter = st.multiselect("Language", leads["Language"].unique())
     
-            sort_option = st.selectbox(
-                "Sort by",
-                ["Score"]
+            candidate_sort_cols = [col for col in ["score", "Company_Size", "Lead_ID", "Language"] if col in leads.columns]
+            sort_option = st.selectbox("Sort by", candidate_sort_cols)
             )
             sort_direction = st.radio(
                 "Sort direction",
