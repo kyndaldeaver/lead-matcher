@@ -1,6 +1,6 @@
 # Lead Matcher
 
-A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within each rep's capacity. Team 36's Ignite Challegne.
+A Streamlit app that accepts two CSV files, cleans their data, scores and prioritizes leads, and recommends sales-rep assignments within each rep's capacity. Team 36's Ignite Challenge. No downloading required just click app link and input files.
 
 
 App Link: https://ignite-challenge-2026.streamlit.app/
