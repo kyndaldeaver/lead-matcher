@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 
 st.title("Sales Lead Assignment Dashboard")
-
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "1. Upload Data",
     "2. Dashboard",
@@ -23,11 +22,11 @@ def clean_data(leads, reps):
         "northamerica": "north america", "nortamer": "north america",
         "nortamerica": "north america", "northamer": "north america",
         "northamericaasia-pacific": "north america and asia pacific",
-        "northamericaasiapacific": "north america and asia pacific",
+        "northamericaasiapacific": "north america and asia pacific"
     }
     language_map = {
         "es": "spanish", "spanish": "spanish", "en": "english", "english": "english",
-        "de": "german", "german": "german",
+        "de": "german", "german": "german"
     }
     activity_map = {
         "n/a": "n/a", "unknown": "unknown", "subscribed": "subscribed", "": "blank",
@@ -38,7 +37,6 @@ def clean_data(leads, reps):
     }
     vip_map = {"true": "true", "false": "false", "unknown": "unknown"}
     seniority_map = {"mgr": "manager", "sr": "senior", "junior": "junior", "jr": "junior", "senior": "senior", "manager": "manager"}
-
     leads["Region"] = (
         leads["Region"].astype("string").str.strip().str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
         .map(region_map).fillna("N/A")
@@ -66,7 +64,6 @@ def clean_data(leads, reps):
                 return "N/A"
         return s.apply(_clean)
     leads["Company_Size"] = clean_company_size(leads["Company_Size"])
-
     reps["Name"] = reps["Name"].astype(str).str.split("(").str[0].str.strip()
     reps["Region"] = (
         reps["Region"].astype("string").str.strip().str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
@@ -81,7 +78,6 @@ def clean_data(leads, reps):
         lambda row: 1 if row["Max_Capacity"] <= 0 else (row["Current_Capacity"]/row["Max_Capacity"]), axis=1
     )
     reps = reps.sort_values("percentage_capacity", ascending=True)
-
     def score_lead(row):
         if row["VIP_Referral"] == "true":
             return 100
@@ -109,13 +105,11 @@ def clean_data(leads, reps):
         elif row["Industry_Vertical"] in ["healthcare", "finance"]:
             score += 10
         return score
-
     leads["score"] = leads.apply(score_lead, axis=1)
     bins = [-float('inf'),40,60,85,float('inf')]
     labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
-
     # Ensure assignment columns, set unassigned to pd.NA
     if "Assigned_Rep_ID" not in leads.columns:
         leads["Assigned_Rep_ID"] = pd.NA
@@ -125,8 +119,31 @@ def clean_data(leads, reps):
         leads["Assigned_Rep_Name"] = pd.NA
     else:
         leads["Assigned_Rep_Name"] = leads["Assigned_Rep_Name"].replace(["", "N/A", "None", "nan", None], pd.NA)
-
     return leads, reps
+
+# --- Efficient Assignment Function ---
+def fast_assign(leads, reps):
+    leads = leads.copy()
+    reps = reps.copy()
+    reps["leads_assigned"] = 0
+
+    # Assign regionally first; if no match, use any rep with capacity
+    regions = leads["Region"].unique()
+    for region in regions:
+        leads_unassigned = leads[leads["Region"] == region].loc[leads["Assigned_Rep_ID"].isna()]
+        reps_in_region = reps[(reps["Region"] == region) & (reps["leads_assigned"] < reps["Max_Capacity"])]
+        reps_other = reps[(reps["leads_assigned"] < reps["Max_Capacity"])]
+        iterator = list(reps_in_region.itertuples()) if not reps_in_region.empty else list(reps_other.itertuples())
+        if not iterator: continue
+        rep_idx_cycle = 0
+        for idx in leads_unassigned.index:
+            rep = iterator[rep_idx_cycle % len(iterator)]
+            if reps.at[rep.Index, "leads_assigned"] < reps.at[rep.Index, "Max_Capacity"]:
+                leads.at[idx, "Assigned_Rep_ID"] = rep.Rep_ID
+                leads.at[idx, "Assigned_Rep_Name"] = rep.Name
+                reps.at[rep.Index, "leads_assigned"] += 1
+            rep_idx_cycle += 1
+    return leads
 
 # --- Tab 1: Upload ---
 with tab1:
@@ -149,37 +166,22 @@ with tab2:
         leads = st.session_state.leads
         reps = st.session_state.reps
 
-        # Show main leads/reps table
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
         if not lead_sample_cols:
             lead_sample_cols = leads.columns[:2]
         st.dataframe(leads[lead_sample_cols].head(50))
+
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
 
-        st.markdown("### Assign Leads to Reps")
+        st.markdown("### Assign Leads to Reps (Fast!)")
         if st.button("Assign All Unassigned Leads"):
-            reps_capacity = reps.copy()
-            reps_capacity["leads_assigned"] = 0
-            for idx, lead in leads.iterrows():
-                if pd.notna(lead["Assigned_Rep_ID"]):
-                    continue
-                possible_reps = reps_capacity[
-                    (reps_capacity["Region"] == lead["Region"]) &
-                    (reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"])
-                ]
-                if possible_reps.empty:
-                    possible_reps = reps_capacity[reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"]]
-                if possible_reps.empty:
-                    continue
-                rep_row = possible_reps.sort_values("percentage_capacity").iloc[0]
-                leads.at[idx, "Assigned_Rep_ID"] = rep_row["Rep_ID"]
-                leads.at[idx, "Assigned_Rep_Name"] = rep_row["Name"]
-                reps_capacity.loc[rep_row.name, "leads_assigned"] += 1
-            st.session_state.leads = leads
-            st.success("Leads assigned! Refresh tabs to see updates.")
+            new_leads = fast_assign(leads, reps)
+            # Update session state
+            st.session_state.leads = new_leads
+            st.success("Leads assigned in seconds! Refresh tabs to see updates.")
 
-        # NOW: Assignment breakdown pie chart (correct scope)
+        # Assignment breakdown pie chart
         leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
@@ -197,6 +199,7 @@ with tab2:
         st.plotly_chart(pie2)
     else:
         st.info("Upload files in Tab 1.")
+
 # --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
