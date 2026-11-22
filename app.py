@@ -145,57 +145,32 @@ if leads_file and reps_file and ("leads" not in st.session_state or "reps" not i
 # --- Tab 2: Dashboard ---
 with tab2:
     st.header("Overview Dashboard")
-    if ("leads" in st.session_state) and ("reps" in st.session_state):
+    if "leads" in st.session_state:
         leads = st.session_state.leads
-        reps = st.session_state.reps
-
-        lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
-        if not lead_sample_cols:
-            lead_sample_cols = leads.columns[:2]
-        st.dataframe(leads[lead_sample_cols].head(50))
-
-        selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
-        st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
-
-        st.markdown("### Assign Leads to Reps")
-        if st.button("Assign All Unassigned Leads"):
-            reps_capacity = reps.copy()
-            reps_capacity["leads_assigned"] = 0
-            for idx, lead in leads.iterrows():
-                if pd.notna(lead["Assigned_Rep_ID"]):
-                    continue
-                # Only reps with remaining capacity in region
-                possible_reps = reps_capacity[
-                    (reps_capacity["Region"] == lead["Region"]) &
-                    (reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"])
-                ]
-                if possible_reps.empty:
-                    possible_reps = reps_capacity[reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"]]
-                if possible_reps.empty:
-                    continue
-                rep_row = possible_reps.sort_values("percentage_capacity").iloc[0]
-                leads.at[idx, "Assigned_Rep_ID"] = rep_row["Rep_ID"]
-                leads.at[idx, "Assigned_Rep_Name"] = rep_row["Name"]
-                reps_capacity.loc[rep_row.name, "leads_assigned"] += 1
-            st.session_state.leads = leads
-            st.success("Leads assigned! Refresh tabs to see updates.")
-
+        
+        # Pie Chart 1: Assignment Breakdown
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
-
         pie1 = go.Figure(go.Pie(
             labels=['Assigned', 'Unassigned'],
             values=[assigned_count, unassigned_count],
-            textinfo='percent+label'))
+            textinfo='percent+label',
+            hole=0.3  # optional: donut style
+        ))
         pie1.update_layout(title="Lead Assignment Breakdown")
         st.plotly_chart(pie1)
+
+        # Pie Chart 2: Priority Distribution
+        leads["priority_score"] = leads["priority_score"].fillna("Unknown")
         priority_counts = leads["priority_score"].value_counts().sort_index()
-        pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
+        pie2 = go.Figure(go.Pie(
+            labels=priority_counts.index,
+            values=priority_counts.values,
+            textinfo='percent+label',
+            hole=0.3  # optional: donut style
+        ))
         pie2.update_layout(title="Leads by Priority")
         st.plotly_chart(pie2)
-    else:
-        st.info("Upload files in Tab 1.")
-
 # --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
