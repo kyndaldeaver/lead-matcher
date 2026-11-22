@@ -184,7 +184,7 @@ if leads_file and reps_file:
             st.write("Sort columns available:", filtered.columns.tolist())
             st.write("Sort_option selected:", sort_option)
 
-            )
+            
             sort_direction = st.radio(
                 "Sort direction",
                 [ "Descending", "Ascending" ],
