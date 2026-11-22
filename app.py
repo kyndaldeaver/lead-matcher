@@ -941,7 +941,7 @@ if cleaned_leads is not None:
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
-with tab1:
+with st.sidebar:
     if cleaned_reps is not None:
         st.divider()
         st.header("Representative results")
