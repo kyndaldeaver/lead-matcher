@@ -8,10 +8,9 @@ import streamlit as st
 # ============================================================
 # STREAMLIT CONFIGURATION
 # ============================================================
-
 st.set_page_config(
     page_title="Team 36's Lead Assignment System",
-    page_icon=" ",
+    page_icon="📊",
     layout="wide",
 )
 
@@ -19,7 +18,6 @@ st.set_page_config(
 # ============================================================
 # REQUIRED CSV COLUMNS
 # ============================================================
-
 LEAD_COLUMNS = {
     "Lead_ID",
     "Company_Name",
@@ -37,6 +35,7 @@ REP_COLUMNS = {
     "Region",
     "Language",
     "Industry_Vertical_Expertise",
+    "Seniority_Level",
     "Current_Capacity",
     "Max_Capacity",
 }
@@ -45,21 +44,17 @@ REP_COLUMNS = {
 # ============================================================
 # NORMALIZATION DICTIONARIES
 # ============================================================
-
 REGION_MAP = {
     "asapacific": "asia pacific",
     "asiapacific": "asia pacific",
     "apac": "asia pacific",
-
     "europ": "europe",
     "europe": "europe",
     "eur": "europe",
-
     "northamerica": "north america",
     "nortamer": "north america",
     "nortamerica": "north america",
     "northamer": "north america",
-
     "asiapacificeurope": "asia pacific and europe",
     "northamericaasiapacific": "north america and asia pacific",
 }
@@ -67,10 +62,8 @@ REGION_MAP = {
 LANGUAGE_MAP = {
     "en": "english",
     "english": "english",
-
     "es": "spanish",
     "spanish": "spanish",
-
     "de": "german",
     "german": "german",
 }
@@ -92,10 +85,8 @@ ACTIVITY_MAP = {
 SENIORITY_MAP = {
     "mgr": "manager",
     "manager": "manager",
-
     "sr": "senior",
     "senior": "senior",
-
     "jr": "junior",
     "junior": "junior",
 }
@@ -104,24 +95,94 @@ SENIORITY_MAP = {
 # ============================================================
 # GENERAL HELPER FUNCTIONS
 # ============================================================
+def standardize_column_headers(dataframe):
+    """
+    Standardize uploaded CSV column headers.
+
+    Examples:
+        " Seniority Level " -> "Seniority_Level"
+        "Seniority-Level"   -> "Seniority_Level"
+        "Seniority"         -> "Seniority_Level"
+        "rep id"            -> "Rep_ID"
+    """
+    dataframe = dataframe.copy()
+
+    cleaned_columns = (
+        pd.Index(dataframe.columns)
+        .astype("string")
+        .str.replace("\ufeff", "", regex=False)
+        .str.strip()
+        .str.replace(r"[^A-Za-z0-9]+", "_", regex=True)
+        .str.strip("_")
+    )
+
+    expected_columns = LEAD_COLUMNS | REP_COLUMNS
+
+    expected_column_lookup = {
+        column.lower(): column
+        for column in expected_columns
+    }
+
+    column_aliases = {
+        "seniority": "Seniority_Level",
+        "senioritylevel": "Seniority_Level",
+        "seniority_level": "Seniority_Level",
+    }
+
+    standardized_columns = []
+
+    for column in cleaned_columns:
+        column_text = str(column)
+        column_lower = column_text.lower()
+
+        standardized_column = column_aliases.get(
+            column_lower,
+            expected_column_lookup.get(
+                column_lower,
+                column_text,
+            ),
+        )
+
+        standardized_columns.append(standardized_column)
+
+    dataframe.columns = standardized_columns
+
+    duplicate_columns = dataframe.columns[
+        dataframe.columns.duplicated()
+    ].tolist()
+
+    if duplicate_columns:
+        duplicate_text = ", ".join(
+            sorted(set(duplicate_columns))
+        )
+        raise ValueError(
+            "The CSV contains duplicate columns after header "
+            f"cleaning: {duplicate_text}"
+        )
+
+    return dataframe
+
 
 def require_columns(dataframe, required_columns, file_name):
     """Verify that an uploaded file contains all required columns."""
-
     missing_columns = required_columns - set(dataframe.columns)
 
     if missing_columns:
         missing_text = ", ".join(sorted(missing_columns))
+        available_text = ", ".join(
+            str(column)
+            for column in dataframe.columns
+        )
 
         raise ValueError(
             f"{file_name} is missing the following columns: "
-            f"{missing_text}"
+            f"{missing_text}. "
+            f"Columns found: {available_text}"
         )
 
 
 def normalize_text(series):
     """Trim whitespace, convert to lowercase, and handle missing values."""
-
     return (
         series.astype("string")
         .str.strip()
@@ -145,7 +206,6 @@ def normalize_key(series):
     Example:
         "Asia-Pacific" -> "asiapacific"
     """
-
     return (
         normalize_text(series)
         .str.replace(r"[^a-z0-9]+", "", regex=True)
@@ -154,14 +214,12 @@ def normalize_key(series):
 
 def map_normalized(series, mapping):
     """Normalize a column and apply a standard-value dictionary."""
-
     keys = normalize_key(series)
     return keys.map(mapping).astype("string")
 
 
 def dataframe_to_csv(dataframe):
     """Convert a DataFrame into downloadable CSV bytes."""
-
     return dataframe.to_csv(index=False).encode("utf-8")
 
 
@@ -170,11 +228,10 @@ def clean_company_size(series):
     Convert company-size values to numbers.
 
     Examples:
-        500     -> 500
-        2.5k    -> 2500
-        1,200   -> 1200
+        500   -> 500
+        2.5k  -> 2500
+        1,200 -> 1200
     """
-
     text = (
         normalize_text(series)
         .str.replace(",", "", regex=False)
@@ -191,7 +248,6 @@ def clean_company_size(series):
 
     contains_k = text.str.endswith("k", na=False)
     multiplier = np.where(contains_k, 1000, 1)
-
     result = number * multiplier
 
     return result.round().astype("Int64")
@@ -203,7 +259,6 @@ def regions_overlap(region_one, region_two):
 
     For example, "asia pacific and europe" overlaps with "europe".
     """
-
     if pd.isna(region_one) or pd.isna(region_two):
         return False
 
@@ -225,10 +280,8 @@ def regions_overlap(region_one, region_two):
 # ============================================================
 # LEAD CLEANING
 # ============================================================
-
 def clean_leads(leads):
     """Clean and normalize an uploaded leads DataFrame."""
-
     require_columns(
         leads,
         LEAD_COLUMNS,
@@ -283,11 +336,9 @@ def clean_leads(leads):
             "true": True,
             "yes": True,
             "1": True,
-
             "false": False,
             "no": False,
             "0": False,
-
             "unknown": pd.NA,
         })
         .astype("boolean")
@@ -299,10 +350,8 @@ def clean_leads(leads):
 # ============================================================
 # REPRESENTATIVE CLEANING
 # ============================================================
-
 def clean_reps(reps):
     """Clean and normalize an uploaded representatives DataFrame."""
-
     require_columns(
         reps,
         REP_COLUMNS,
@@ -391,10 +440,8 @@ def clean_reps(reps):
 # ============================================================
 # LEAD SCORING
 # ============================================================
-
 def score_leads(leads):
     """Calculate lead scores and priority categories."""
-
     leads = leads.copy()
 
     score = pd.Series(
@@ -489,10 +536,8 @@ def score_leads(leads):
 # ============================================================
 # VALIDATION
 # ============================================================
-
 def validate_data(leads, reps):
     """Return a list of data-quality warnings."""
-
     warnings = []
 
     if leads["Lead_ID"].isna().any():
@@ -506,7 +551,9 @@ def validate_data(leads, reps):
         )
 
     if reps["Rep_ID"].isna().any():
-        warnings.append("Some representatives have missing Rep_ID values.")
+        warnings.append(
+            "Some representatives have missing Rep_ID values."
+        )
 
     duplicate_reps = reps["Rep_ID"].duplicated().sum()
 
@@ -552,7 +599,16 @@ def validate_data(leads, reps):
 
     if missing_rep_languages:
         warnings.append(
-            f"{missing_rep_languages} representatives have an unknown language."
+            f"{missing_rep_languages} representatives have an "
+            "unknown language."
+        )
+
+    missing_rep_seniority = reps["Seniority_Level"].isna().sum()
+
+    if missing_rep_seniority:
+        warnings.append(
+            f"{missing_rep_seniority} representatives have an "
+            "unknown seniority level."
         )
 
     return warnings
@@ -561,7 +617,6 @@ def validate_data(leads, reps):
 # ============================================================
 # LEAD-TO-REPRESENTATIVE ASSIGNMENT
 # ============================================================
-
 def match_and_assign(
     leads,
     reps,
@@ -578,11 +633,9 @@ def match_and_assign(
         4. Lowest capacity utilization
         5. Seniority for high-priority leads
     """
-
     assigned_leads = leads.copy()
     updated_reps = reps.copy()
 
-    # Store changing capacity values separately.
     current_capacity = {
         index: int(row["Current_Capacity"])
         for index, row in updated_reps.iterrows()
@@ -613,7 +666,6 @@ def match_and_assign(
             current = current_capacity[rep_index]
             maximum = max_capacity[rep_index]
 
-            # Do not assign to representatives with no available space.
             if maximum <= 0 or current >= maximum:
                 continue
 
@@ -659,10 +711,6 @@ def match_and_assign(
                 0,
             )
 
-            # Higher match score is better.
-            # Lower utilization is better.
-            # More senior representatives are preferred for
-            # critical and high-priority leads.
             if lead["Priority"] in {"critical", "high"}:
                 ranking = (
                     match_score,
@@ -747,12 +795,15 @@ def match_and_assign(
 # ============================================================
 # CACHED FILE PROCESSING
 # ============================================================
-
 @st.cache_data(show_spinner="Cleaning and scoring leads...")
 def process_leads(file_bytes):
     """Read, clean, and score a leads CSV."""
+    leads = pd.read_csv(
+        io.BytesIO(file_bytes),
+        encoding="utf-8-sig",
+    )
 
-    leads = pd.read_csv(io.BytesIO(file_bytes))
+    leads = standardize_column_headers(leads)
     leads = clean_leads(leads)
     leads = score_leads(leads)
 
@@ -762,8 +813,12 @@ def process_leads(file_bytes):
 @st.cache_data(show_spinner="Cleaning representatives...")
 def process_reps(file_bytes):
     """Read and clean a representatives CSV."""
+    reps = pd.read_csv(
+        io.BytesIO(file_bytes),
+        encoding="utf-8-sig",
+    )
 
-    reps = pd.read_csv(io.BytesIO(file_bytes))
+    reps = standardize_column_headers(reps)
     reps = clean_reps(reps)
 
     reps = (
@@ -785,7 +840,6 @@ def process_reps(file_bytes):
 # ============================================================
 # STREAMLIT INTERFACE
 # ============================================================
-
 st.title("📊 Lead Cleaning and Assignment System")
 
 st.write(
@@ -803,15 +857,19 @@ with st.sidebar:
     require_region = st.checkbox(
         "Require region match",
         value=True,
-        help="A lead will only be assigned to a representative "
-             "who supports the lead's region.",
+        help=(
+            "A lead will only be assigned to a representative "
+            "who supports the lead's region."
+        ),
     )
 
     require_language = st.checkbox(
         "Require language match",
         value=True,
-        help="A lead will only be assigned to a representative "
-             "who speaks the lead's language.",
+        help=(
+            "A lead will only be assigned to a representative "
+            "who speaks the lead's language."
+        ),
     )
 
     st.divider()
@@ -819,14 +877,12 @@ with st.sidebar:
     st.markdown(
         """
         **Lead score rules**
-
         - VIP referral: 100 points
         - Company size: up to 50 points
         - Recent activity: up to 35 points
         - Industry: up to 15 points
         """
     )
-
 
 upload_column_one, upload_column_two = st.columns(2)
 
@@ -844,7 +900,6 @@ with upload_column_two:
         key="rep_file",
     )
 
-
 cleaned_leads = None
 cleaned_reps = None
 
@@ -852,13 +907,11 @@ cleaned_reps = None
 # ============================================================
 # PROCESS LEADS
 # ============================================================
-
 if lead_file is not None:
     try:
         cleaned_leads = process_leads(
             lead_file.getvalue()
         )
-
     except Exception as error:
         st.error(
             f"Unable to process the leads file: {error}"
@@ -868,13 +921,11 @@ if lead_file is not None:
 # ============================================================
 # PROCESS REPRESENTATIVES
 # ============================================================
-
 if rep_file is not None:
     try:
         cleaned_reps = process_reps(
             rep_file.getvalue()
         )
-
     except Exception as error:
         st.error(
             f"Unable to process the representatives file: {error}"
@@ -884,7 +935,6 @@ if rep_file is not None:
 # ============================================================
 # DISPLAY CLEANED LEADS
 # ============================================================
-
 if cleaned_leads is not None:
     st.divider()
     st.header("Lead results")
@@ -959,7 +1009,6 @@ if cleaned_leads is not None:
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
-
 if cleaned_reps is not None:
     st.divider()
     st.header("Representative results")
@@ -1023,7 +1072,6 @@ if cleaned_reps is not None:
 # ============================================================
 # VALIDATION AND ASSIGNMENT
 # ============================================================
-
 if cleaned_leads is not None and cleaned_reps is not None:
     st.divider()
     st.header("Data validation")
@@ -1037,7 +1085,9 @@ if cleaned_leads is not None and cleaned_reps is not None:
         for warning in validation_warnings:
             st.warning(warning)
     else:
-        st.success("The uploaded data passed all validation checks.")
+        st.success(
+            "The uploaded data passed all validation checks."
+        )
 
     st.divider()
     st.header("Lead assignment")
@@ -1175,7 +1225,6 @@ if cleaned_leads is not None and cleaned_reps is not None:
 # ============================================================
 # EMPTY-STATE MESSAGE
 # ============================================================
-
 if lead_file is None and rep_file is None:
     st.info(
         "Upload your leads CSV and representatives CSV to begin."
