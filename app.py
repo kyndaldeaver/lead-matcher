@@ -862,124 +862,106 @@ if rep_file is not None:
             f"Unable to process the representatives file: {error}"
         )
 
-
 # ============================================================
-# DISPLAY CLEANED LEADS
+# RESULTS TABS
 # ============================================================
 
-if cleaned_leads is not None:
-    st.divider()
-    st.header("Lead results")
+leads_tab, representatives_tab = st.tabs([
+    "Lead results",
+    "Representative results",
+])
 
-    lead_metric_columns = st.columns(5)
+with leads_tab:
+    if cleaned_leads is not None:
+        lead_metric_columns = st.columns(5)
 
-    lead_metric_columns[0].metric(
-        "Total leads",
-        f"{len(cleaned_leads):,}",
-    )
+        lead_metric_columns[0].metric(
+            "Total leads",
+            f"{len(cleaned_leads):,}",
+        )
+        lead_metric_columns[1].metric(
+            "Critical",
+            f"{(cleaned_leads['Priority'] == 'critical').sum():,}",
+        )
+        lead_metric_columns[2].metric(
+            "High",
+            f"{(cleaned_leads['Priority'] == 'high').sum():,}",
+        )
+        lead_metric_columns[3].metric(
+            "Medium",
+            f"{(cleaned_leads['Priority'] == 'medium').sum():,}",
+        )
 
-    lead_metric_columns[1].metric(
-        "Critical",
-        f"{(cleaned_leads['Priority'] == 'critical').sum():,}",
-    )
+        average_score = (
+            cleaned_leads["Score"].mean()
+            if not cleaned_leads.empty
+            else 0
+        )
+        lead_metric_columns[4].metric(
+            "Average score",
+            f"{average_score:.1f}",
+        )
 
-    lead_metric_columns[2].metric(
-        "High",
-        f"{(cleaned_leads['Priority'] == 'high').sum():,}",
-    )
+        selected_priorities = st.multiselect(
+            "Filter leads by priority",
+            options=["critical", "high", "medium", "low"],
+            default=["critical", "high", "medium", "low"],
+            key="lead_priority_filter",
+        )
 
-    lead_metric_columns[3].metric(
-        "Medium",
-        f"{(cleaned_leads['Priority'] == 'medium').sum():,}",
-    )
+        displayed_leads = cleaned_leads[
+            cleaned_leads["Priority"].isin(selected_priorities)
+        ]
 
-    average_score = (
-        cleaned_leads["Score"].mean()
-        if not cleaned_leads.empty
-        else 0
-    )
+        st.dataframe(
+            displayed_leads,
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    lead_metric_columns[4].metric(
-        "Average score",
-        f"{average_score:.1f}",
-    )
-
-    selected_priorities = st.multiselect(
-        "Filter leads by priority",
-        options=[
-            "critical",
-            "high",
-            "medium",
-            "low",
-        ],
-        default=[
-            "critical",
-            "high",
-            "medium",
-            "low",
-        ],
-    )
-
-    displayed_leads = cleaned_leads[
-        cleaned_leads["Priority"].isin(selected_priorities)
-    ]
-
-    st.dataframe(
-        displayed_leads,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        label="Download cleaned leads",
-        data=dataframe_to_csv(cleaned_leads),
-        file_name="cleaned_leads.csv",
-        mime="text/csv",
-    )
+        st.download_button(
+            label="Download cleaned leads",
+            data=dataframe_to_csv(cleaned_leads),
+            file_name="cleaned_leads.csv",
+            mime="text/csv",
+            key="download_cleaned_leads",
+        )
+    else:
+        st.info("Upload a leads CSV to see lead results.")
 
 
-# ============================================================
-# DISPLAY CLEANED REPRESENTATIVES
-# ============================================================
-with st.sidebar:
+with representatives_tab:
     if cleaned_reps is not None:
-        st.divider()
-        st.header("Representative results")
-    
         rep_metric_columns = st.columns(4)
-    
+
         rep_metric_columns[0].metric(
             "Total representatives",
             f"{len(cleaned_reps):,}",
         )
-    
         rep_metric_columns[1].metric(
             "Available capacity",
             f"{cleaned_reps['Available_Capacity'].sum():,.0f}",
         )
-    
+
         average_utilization = (
             cleaned_reps["Capacity_Utilization"].mean()
             if not cleaned_reps.empty
             else 0
         )
-    
         rep_metric_columns[2].metric(
             "Average utilization",
             f"{average_utilization:.1%}",
         )
-    
+
         full_reps = (
             cleaned_reps["Available_Capacity"] <= 0
         ).sum()
-    
         rep_metric_columns[3].metric(
             "Representatives at capacity",
             f"{full_reps:,}",
         )
-    
+
         displayed_reps = cleaned_reps.copy()
-    
         displayed_reps["Capacity_Utilization"] = (
             displayed_reps["Capacity_Utilization"]
             .mul(100)
@@ -987,20 +969,22 @@ with st.sidebar:
             .astype("string")
             + "%"
         )
-    
+
         st.dataframe(
             displayed_reps,
             use_container_width=True,
             hide_index=True,
         )
-    
+
         st.download_button(
             label="Download cleaned representatives",
             data=dataframe_to_csv(cleaned_reps),
             file_name="cleaned_representatives.csv",
             mime="text/csv",
+            key="download_cleaned_representatives",
         )
-
+    else:
+        st.info("Upload a representatives CSV to see representative results.")
 
 # ============================================================
 # VALIDATION AND ASSIGNMENT
