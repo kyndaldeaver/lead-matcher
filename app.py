@@ -985,7 +985,6 @@ with representatives_tab:
         )
     else:
         st.info("Upload a representatives CSV to see representative results.")
-
 # ============================================================
 # VALIDATION AND ASSIGNMENT
 # ============================================================
