@@ -109,7 +109,6 @@ def clean_data(leads, reps):
     labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
-    # Ensure assignment columns
     if "Assigned_Rep_ID" not in leads.columns:
         leads["Assigned_Rep_ID"] = pd.NA
     else:
@@ -124,6 +123,13 @@ def fast_assign(leads, reps):
     leads = leads.copy()
     reps = reps.copy()
     reps["leads_assigned"] = 0
+    # DEBUG: Show what's available
+    st.write("DEBUG: All reps sample:")
+    st.write(reps.head())
+    st.write("DEBUG: All unique lead regions:", leads["Region"].unique())
+    st.write("DEBUG: All unique rep regions:", reps["Region"].unique())
+    st.write("DEBUG: Reps Max_Capacity sample:", reps["Max_Capacity"].head())
+    st.write("DEBUG: Shape of leads:", leads.shape)
     regions = leads["Region"].unique()
     for region in regions:
         leads_unassigned = leads[leads["Region"] == region].loc[leads["Assigned_Rep_ID"].isna()]
@@ -167,8 +173,14 @@ with tab2:
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
         if not lead_sample_cols:
             lead_sample_cols = leads.columns[:2]
-        # Show all leads (not filtered)
+        # Show all leads (assigned and unassigned)
         st.dataframe(leads[lead_sample_cols].head(50))
+
+        # DEBUG: Show assigned/unassigned sample
+        st.write("DEBUG: Assigned leads sample:")
+        st.write(leads[leads["Assigned_Rep_ID"].notna()].head())
+        st.write("DEBUG: Unassigned leads sample:")
+        st.write(leads[leads["Assigned_Rep_ID"].isna()].head())
 
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
@@ -188,7 +200,7 @@ with tab2:
         elif unassigned_count == 0:
             st.info("All leads are already assigned.")
 
-        # Priority pie chart (shows all leads by category)
+        # Priority chart
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(
             labels=priority_counts.index,
