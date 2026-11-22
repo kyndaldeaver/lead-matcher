@@ -1,11 +1,9 @@
-from __future__ import annotations
+# importing libaries
+import io # lets pandas read an uploaded file
 
-import re
-from typing import Any
-
-import numpy as np
-import pandas as pd
-import streamlit as st
+import numpy as np # provides fast calulations
+import pandas as pd # helps form tables and sorts adn cleans files
+import streamlit as st # web based application
 
 
 # ============================================================
@@ -13,7 +11,8 @@ import streamlit as st
 # ============================================================
 
 st.set_page_config(
-    page_title="Lead Matcher",
+    page_title="Team 36's Lead Matcher System",
+    page_icon="📊",
     layout="wide",
 )
 
@@ -22,7 +21,7 @@ st.set_page_config(
 # REQUIRED CSV COLUMNS
 # ============================================================
 
-LEAD_REQUIRED = {
+LEAD_COLUMNS = {
     "Lead_ID",
     "Company_Name",
     "Region",
@@ -33,49 +32,23 @@ LEAD_REQUIRED = {
     "VIP_Referral",
 }
 
-REP_REQUIRED = {
+REP_COLUMNS = {
     "Rep_ID",
     "Name",
     "Region",
     "Language",
     "Industry_Vertical_Expertise",
+    "Seniority_Level",
     "Current_Capacity",
     "Max_Capacity",
 }
 
 
 # ============================================================
-# COLUMN HEADER ALIASES
+# NORMALIZATION DICTIONARIES
 # ============================================================
 
-HEADER_ALIASES = {
-    # Lead columns
-    "leadid": "Lead_ID",
-    "companyname": "Company_Name",
-    "industryvertical": "Industry_Vertical",
-    "companysize": "Company_Size",
-    "recentactivity": "Recent_Activity",
-    "vipreferral": "VIP_Referral",
-
-    # Representative columns
-    "repid": "Rep_ID",
-    "name": "Name",
-    "industryverticalexpertise":
-        "Industry_Vertical_Expertise",
-    "currentcapacity": "Current_Capacity",
-    "maxcapacity": "Max_Capacity",
-
-    # Shared columns
-    "region": "Region",
-    "language": "Language",
-}
-
-
-# ============================================================
-# DATA NORMALIZATION DICTIONARIES
-# ============================================================
-
-REGION_ALIASES = {
+REGION_MAP = {
     "asapacific": "asia pacific",
     "asiapacific": "asia pacific",
     "apac": "asia pacific",
@@ -89,14 +62,11 @@ REGION_ALIASES = {
     "nortamerica": "north america",
     "northamer": "north america",
 
-    "asiapacificeurope":
-        "asia pacific and europe",
-
-    "northamericaasiapacific":
-        "north america and asia pacific",
+    "asiapacificeurope": "asia pacific and europe",
+    "northamericaasiapacific": "north america and asia pacific",
 }
 
-LANGUAGE_ALIASES = {
+LANGUAGE_MAP = {
     "en": "english",
     "english": "english",
 
@@ -107,538 +77,283 @@ LANGUAGE_ALIASES = {
     "german": "german",
 }
 
-ACTIVITY_ALIASES = {
-    "na": "N/A",
-    "unknown": "Unknown",
-
-    "subscribed":
-        "Subscribed To Blog",
-
-    "subscribedtoblog":
-        "Subscribed To Blog",
-
-    "downloadedwhitepaper":
-        "Downloaded Whitepaper",
-
-    "requestedlivedemo":
-        "Requested Live Demo",
-
-    "openedmarketingemail":
-        "Opened Marketing Email",
-
-    "contactsales":
-        "Contact Sales",
-
-    "visitedpricingpage":
-        "Visited Pricing Page",
-
-    "startedfreetrial":
-        "Started Free Trial",
-
-    "attendedwebinar":
-        "Attended Webinar",
+ACTIVITY_MAP = {
+    "subscribed": "subscribed",
+    "subscribedtoblog": "subscribed to blog",
+    "downloadedwhitepaper": "downloaded whitepaper",
+    "requestedlivedemo": "requested live demo",
+    "openedmarketingemail": "opened marketing email",
+    "contactsales": "contact sales",
+    "visitedpricingpage": "visited pricing page",
+    "startedfreetrial": "started free trial",
+    "attendedwebinar": "attended webinar",
+    "unknown": "unknown",
+    "na": "unknown",
 }
 
-ACTIVITY_POINTS = {
-    "Requested Live Demo": 35,
-    "Contact Sales": 35,
+SENIORITY_MAP = {
+    "mgr": "manager",
+    "manager": "manager",
 
-    "Attended Webinar": 25,
-    "Started Free Trial": 25,
+    "sr": "senior",
+    "senior": "senior",
 
-    "Downloaded Whitepaper": 15,
-    "Visited Pricing Page": 10,
-
-    "Subscribed To Blog": 5,
-}
-
-INDUSTRY_POINTS = {
-    "technology": 15,
-    "healthcare": 10,
-    "finance": 10,
-}
-
-PRIORITY_RANK = {
-    "critical": 4,
-    "high": 3,
-    "medium": 2,
-    "low": 1,
+    "jr": "junior",
+    "junior": "junior",
 }
 
 
 # ============================================================
-# COLUMN HEADER CLEANING
+# GENERAL HELPER FUNCTIONS
 # ============================================================
 
-def clean_column_names(
-    dataframe: pd.DataFrame,
-) -> pd.DataFrame:
-    """
-    Standardize CSV column names.
+def require_columns(dataframe, required_columns, file_name):
+    """Verify that an uploaded file contains all required columns."""
 
-    Examples:
-        Lead ID -> Lead_ID
-        Lead-ID -> Lead_ID
-        lead_id -> Lead_ID
-    """
-
-    data = dataframe.copy()
-
-    original_headers = (
-        pd.Index(data.columns)
-        .astype("string")
-        .str.replace(
-            "\ufeff",
-            "",
-            regex=False,
-        )
-        .str.strip()
-    )
-
-    header_keys = (
-        original_headers
-        .str.lower()
-        .str.replace(
-            r"[^a-z0-9]+",
-            "",
-            regex=True,
-        )
-    )
-
-    cleaned_headers = [
-        HEADER_ALIASES.get(
-            key,
-            original,
-        )
-        for key, original in zip(
-            header_keys,
-            original_headers,
-        )
-    ]
-
-    if len(cleaned_headers) != len(
-        set(cleaned_headers)
-    ):
-        raise ValueError(
-            "The CSV contains duplicate columns after "
-            "the column headers were cleaned."
-        )
-
-    data.columns = cleaned_headers
-
-    return data
-
-
-def validate_required_columns(
-    dataframe: pd.DataFrame,
-    required_columns: set[str],
-    file_name: str,
-) -> None:
-    """Check whether a CSV contains its required columns."""
-
-    missing_columns = (
-        required_columns
-        - set(dataframe.columns)
-    )
+    missing_columns = required_columns - set(dataframe.columns)
 
     if missing_columns:
-        missing_text = ", ".join(
-            sorted(missing_columns)
-        )
-
-        found_text = ", ".join(
-            str(column)
-            for column in dataframe.columns
-        )
+        missing_text = ", ".join(sorted(missing_columns))
 
         raise ValueError(
-            f"{file_name} is missing required columns: "
-            f"{missing_text}. Columns found: {found_text}"
+            f"{file_name} is missing the following columns: "
+            f"{missing_text}"
         )
 
 
-# ============================================================
-# GENERAL COLUMN CLEANING FUNCTIONS
-# ============================================================
-
-def normalize_text_column(
-    series: pd.Series,
-) -> pd.Series:
-    """
-    Clean a complete pandas text column.
-
-    This:
-    - Preserves missing values
-    - Removes outside spaces
-    - Converts text to lowercase
-    - Replaces repeated spaces with one space
-    """
+def normalize_text(series):
+    """Trim whitespace, convert to lowercase, and handle missing values."""
 
     return (
         series.astype("string")
         .str.strip()
         .str.lower()
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+        .str.replace(r"\s+", " ", regex=True)
         .replace({
             "": pd.NA,
             "nan": pd.NA,
             "none": pd.NA,
             "null": pd.NA,
+            "n/a": pd.NA,
+            "na": pd.NA,
         })
     )
 
 
-def normalize_key_column(
-    series: pd.Series,
-) -> pd.Series:
+def normalize_key(series):
     """
-    Prepare an entire column for dictionary matching.
+    Create dictionary lookup keys by removing spaces and punctuation.
 
-    Examples:
-        Asia-Pacific -> asiapacific
-        Asia Pacific -> asiapacific
-        Asia.Pacific -> asiapacific
+    Example:
+        "Asia-Pacific" -> "asiapacific"
     """
 
     return (
-        normalize_text_column(series)
-        .str.replace(
-            r"[^a-z0-9]+",
-            "",
-            regex=True,
-        )
+        normalize_text(series)
+        .str.replace(r"[^a-z0-9]+", "", regex=True)
     )
 
 
-def clean_mapped_column(
-    series: pd.Series,
-    mapping: dict[str, str],
-    default: str,
-    preserve_unknown: bool = False,
-) -> pd.Series:
+def map_normalized(series, mapping):
+    """Normalize a column and apply a standard-value dictionary."""
+
+    keys = normalize_key(series)
+    return keys.map(mapping).astype("string")
+
+
+def dataframe_to_csv(dataframe):
+    """Convert a DataFrame into downloadable CSV bytes."""
+
+    return dataframe.to_csv(index=False).encode("utf-8")
+
+
+def clean_company_size(series):
     """
-    Clean an entire column and apply a normalization
-    dictionary.
-    """
-
-    cleaned_text = normalize_text_column(
-        series
-    )
-
-    cleaned_keys = normalize_key_column(
-        series
-    )
-
-    mapped_values = cleaned_keys.map(
-        mapping
-    )
-
-    if preserve_unknown:
-        mapped_values = mapped_values.fillna(
-            cleaned_text
-        )
-
-    return (
-        mapped_values
-        .fillna(default)
-        .astype("string")
-    )
-
-
-def clean_text_value(value: Any) -> str:
-    """
-    Clean one value for assignment comparisons.
-
-    The assignment process is sequential, so individual
-    values must be compared while capacity is changing.
-    """
-
-    if pd.isna(value):
-        return ""
-
-    return re.sub(
-        r"\s+",
-        " ",
-        str(value).strip().lower(),
-    )
-
-
-# ============================================================
-# COMPANY SIZE CLEANING
-# ============================================================
-
-def clean_company_size_column(
-    series: pd.Series,
-) -> pd.Series:
-    """
-    Clean the complete Company_Size column.
+    Convert company-size values to numbers.
 
     Examples:
-        500   -> 500
-        2.5k  -> 2500
-        1,200 -> 1200
-        N/A   -> missing
+        500     -> 500
+        2.5k    -> 2500
+        1,200   -> 1200
     """
 
     text = (
-        normalize_text_column(series)
-        .str.replace(
-            ",",
-            "",
-            regex=False,
-        )
-        .str.replace(
-            " ",
-            "",
-            regex=False,
-        )
+        normalize_text(series)
+        .str.replace(",", "", regex=False)
+        .str.replace(" ", "", regex=False)
     )
 
-    extracted_numbers = (
+    number = pd.to_numeric(
         text.str.extract(
             r"([0-9]*\.?[0-9]+)",
             expand=False,
-        )
-    )
-
-    numbers = pd.to_numeric(
-        extracted_numbers,
+        ),
         errors="coerce",
     )
 
-    multipliers = np.where(
-        text.str.endswith(
-            "k",
-            na=False,
-        ),
-        1000,
-        1,
-    )
+    contains_k = text.str.endswith("k", na=False)
+    multiplier = np.where(contains_k, 1000, 1)
 
-    result = numbers * multipliers
+    result = number * multiplier
 
-    return (
-        result
-        .round()
-        .astype("Float64")
-    )
+    return result.round().astype("Int64")
 
 
-# ============================================================
-# COMPANY SIZE FILTER GROUPS
-# ============================================================
-
-def company_size_groups(
-    series: pd.Series,
-) -> pd.Series:
+def regions_overlap(region_one, region_two):
     """
-    Categorize the entire Company_Size column for filtering.
+    Determine whether two normalized regions overlap.
+
+    For example, "asia pacific and europe" overlaps with "europe".
     """
 
-    conditions = [
-        series.isna(),
-        series.lt(100).fillna(False),
-        series.lt(1000).fillna(False),
-    ]
+    if pd.isna(region_one) or pd.isna(region_two):
+        return False
 
-    choices = [
-        "Missing",
-        "Under 100",
-        "100–999",
-    ]
+    regions_one = {
+        item.strip()
+        for item in str(region_one).split(" and ")
+        if item.strip()
+    }
 
-    groups = np.select(
-        conditions,
-        choices,
-        default="1,000+",
-    )
+    regions_two = {
+        item.strip()
+        for item in str(region_two).split(" and ")
+        if item.strip()
+    }
 
-    return pd.Series(
-        groups,
-        index=series.index,
-        dtype="string",
-    )
+    return bool(regions_one.intersection(regions_two))
 
 
 # ============================================================
 # LEAD CLEANING
 # ============================================================
 
-def normalize_leads(
-    dataframe: pd.DataFrame,
-) -> pd.DataFrame:
-    """Clean the leads table using pandas columns."""
+def clean_leads(leads):
+    """Clean and normalize an uploaded leads DataFrame."""
 
-    data = dataframe.copy()
-
-    validate_required_columns(
-        data,
-        LEAD_REQUIRED,
-        "Leads CSV",
+    require_columns(
+        leads,
+        LEAD_COLUMNS,
+        "The leads file",
     )
 
-    # Clean the complete Lead_ID column.
-    data["Lead_ID"] = (
-        data["Lead_ID"]
+    leads = leads.copy()
+
+    leads["Lead_ID"] = (
+        leads["Lead_ID"]
         .astype("string")
         .str.strip()
     )
 
-    # Clean the complete Company_Name column.
-    data["Company_Name"] = (
-        data["Company_Name"]
+    leads["Company_Name"] = (
+        leads["Company_Name"]
         .astype("string")
         .str.strip()
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+        .str.replace(r"\s+", " ", regex=True)
     )
 
-    # Standardize the complete Region column.
-    data["Region"] = clean_mapped_column(
-        data["Region"],
-        REGION_ALIASES,
-        default="N/A",
-        preserve_unknown=True,
+    leads["Region"] = map_normalized(
+        leads["Region"],
+        REGION_MAP,
     )
 
-    # Standardize the complete Language column.
-    data["Language"] = clean_mapped_column(
-        data["Language"],
-        LANGUAGE_ALIASES,
-        default="N/A",
-        preserve_unknown=False,
+    leads["Language"] = map_normalized(
+        leads["Language"],
+        LANGUAGE_MAP,
     )
 
-    # Clean the complete industry column.
-    data["Industry_Vertical"] = (
-        normalize_text_column(
-            data["Industry_Vertical"]
+    leads["Industry_Vertical"] = normalize_text(
+        leads["Industry_Vertical"]
+    )
+
+    leads["Company_Size"] = clean_company_size(
+        leads["Company_Size"]
+    )
+
+    leads["Recent_Activity"] = (
+        map_normalized(
+            leads["Recent_Activity"],
+            ACTIVITY_MAP,
         )
         .fillna("unknown")
-        .astype("string")
     )
 
-    # Convert the complete company-size column to numbers.
-    data["Company_Size"] = (
-        clean_company_size_column(
-            data["Company_Size"]
-        )
+    vip_text = normalize_text(leads["VIP_Referral"])
+
+    leads["VIP_Referral"] = (
+        vip_text.map({
+            "true": True,
+            "yes": True,
+            "1": True,
+
+            "false": False,
+            "no": False,
+            "0": False,
+
+            "unknown": pd.NA,
+        })
+        .astype("boolean")
     )
 
-    # Standardize the complete activity column.
-    data["Recent_Activity"] = (
-        clean_mapped_column(
-            data["Recent_Activity"],
-            ACTIVITY_ALIASES,
-            default="Unknown",
-            preserve_unknown=True,
-        )
-        .str.title()
-    )
-
-    # Standardize the complete VIP column.
-    vip_values = normalize_text_column(
-        data["VIP_Referral"]
-    )
-
-    data["VIP_Referral"] = (
-        vip_values
-        .where(
-            vip_values.isin({
-                "true",
-                "false",
-                "unknown",
-            }),
-            "unknown",
-        )
-        .fillna("unknown")
-        .astype("string")
-    )
-
-    return data
+    return leads
 
 
 # ============================================================
 # REPRESENTATIVE CLEANING
 # ============================================================
 
-def normalize_reps(
-    dataframe: pd.DataFrame,
-) -> pd.DataFrame:
-    """Clean the representative table using pandas columns."""
+def clean_reps(reps):
+    """Clean and normalize an uploaded representatives DataFrame."""
 
-    data = dataframe.copy()
-
-    validate_required_columns(
-        data,
-        REP_REQUIRED,
-        "Sales representatives CSV",
+    require_columns(
+        reps,
+        REP_COLUMNS,
+        "The representatives file",
     )
 
-    # Clean all representative IDs.
-    data["Rep_ID"] = (
-        data["Rep_ID"]
+    reps = reps.copy()
+
+    reps["Rep_ID"] = (
+        reps["Rep_ID"]
         .astype("string")
         .str.strip()
     )
 
-    # Remove parenthetical information from every name.
-    #
-    # Example:
-    # Maria Fernandez (West) -> Maria Fernandez
-    data["Name"] = (
-        data["Name"]
+    # Example: "Maria Fernandez (West)" -> "Maria Fernandez"
+    reps["Name"] = (
+        reps["Name"]
         .astype("string")
         .str.replace(
             r"\s*\([^)]*\)\s*",
             " ",
             regex=True,
         )
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+        .str.replace(r"\s+", " ", regex=True)
         .str.strip()
-        .fillna("")
     )
 
-    # Standardize all representative regions.
-    data["Region"] = clean_mapped_column(
-        data["Region"],
-        REGION_ALIASES,
-        default="N/A",
-        preserve_unknown=True,
+    reps["Region"] = map_normalized(
+        reps["Region"],
+        REGION_MAP,
     )
 
-    # Standardize all representative languages.
-    data["Language"] = clean_mapped_column(
-        data["Language"],
-        LANGUAGE_ALIASES,
-        default="N/A",
-        preserve_unknown=False,
+    reps["Language"] = map_normalized(
+        reps["Language"],
+        LANGUAGE_MAP,
     )
 
-    # Clean all industry-expertise values.
-    data["Industry_Vertical_Expertise"] = (
-        normalize_text_column(
-            data["Industry_Vertical_Expertise"]
-        )
-        .fillna("unknown")
-        .astype("string")
+    reps["Industry_Vertical_Expertise"] = normalize_text(
+        reps["Industry_Vertical_Expertise"]
     )
 
-    # Convert the complete current-capacity column to numbers.
-    data["Current_Capacity"] = (
+    reps["Seniority_Level"] = map_normalized(
+        reps["Seniority_Level"],
+        SENIORITY_MAP,
+    )
+
+    reps["Current_Capacity"] = (
         pd.to_numeric(
-            data["Current_Capacity"],
+            reps["Current_Capacity"],
             errors="coerce",
         )
         .fillna(0)
@@ -647,10 +362,9 @@ def normalize_reps(
         .astype("Int64")
     )
 
-    # Convert the complete maximum-capacity column to numbers.
-    data["Max_Capacity"] = (
+    reps["Max_Capacity"] = (
         pd.to_numeric(
-            data["Max_Capacity"],
+            reps["Max_Capacity"],
             errors="coerce",
         )
         .fillna(0)
@@ -659,73 +373,44 @@ def normalize_reps(
         .astype("Int64")
     )
 
-    maximum = (
-        data["Max_Capacity"]
-        .astype("Float64")
-    )
+    current_capacity = reps["Current_Capacity"].astype("Float64")
+    max_capacity = reps["Max_Capacity"].astype("Float64")
 
-    current = (
-        data["Current_Capacity"]
-        .astype("Float64")
-    )
-
-    # Calculate utilization for the complete table.
-    data["Capacity_Utilization"] = (
-        current
-        .div(
-            maximum.where(
-                maximum > 0
-            )
-        )
+    reps["Capacity_Utilization"] = (
+        current_capacity
+        .div(max_capacity.where(max_capacity > 0))
         .fillna(1.0)
         .clip(lower=0)
     )
 
-    # Calculate remaining capacity for the complete table.
-    data["Available_Capacity"] = (
-        data["Max_Capacity"]
-        - data["Current_Capacity"]
+    reps["Available_Capacity"] = (
+        reps["Max_Capacity"] - reps["Current_Capacity"]
     ).clip(lower=0)
 
-    return data
+    return reps
 
 
 # ============================================================
-# LEAD SCORING AND SORTING
+# LEAD SCORING
 # ============================================================
 
-def score_leads(
-    leads: pd.DataFrame,
-) -> pd.DataFrame:
-    """Score and sort all leads using pandas columns."""
+def score_leads(leads):
+    """Calculate lead scores and priority categories."""
 
-    data = leads.copy()
+    leads = leads.copy()
 
     score = pd.Series(
         0,
-        index=data.index,
+        index=leads.index,
         dtype="int64",
     )
 
-    # --------------------------------------------------------
-    # COMPANY SIZE POINTS
-    # --------------------------------------------------------
-
-    company_points = np.select(
+    # Company-size scoring
+    company_size_score = np.select(
         [
-            data["Company_Size"]
-            .ge(1000)
-            .fillna(False)
-            .to_numpy(dtype=bool),
-
-            data["Company_Size"]
-            .ge(100)
-            .fillna(False)
-            .to_numpy(dtype=bool),
-
-            data["Company_Size"]
-            .isna()
-            .to_numpy(dtype=bool),
+            leads["Company_Size"].ge(1000).fillna(False),
+            leads["Company_Size"].ge(100).fillna(False),
+            leads["Company_Size"].isna(),
         ],
         [
             50,
@@ -735,54 +420,55 @@ def score_leads(
         default=0,
     )
 
-    score += company_points
+    score += company_size_score
 
-    # --------------------------------------------------------
-    # ACTIVITY POINTS
-    # --------------------------------------------------------
+    # Recent-activity scoring
+    activity_points = {
+        "requested live demo": 35,
+        "contact sales": 35,
+        "attended webinar": 25,
+        "started free trial": 25,
+        "downloaded whitepaper": 15,
+        "visited pricing page": 10,
+        "subscribed to blog": 5,
+        "subscribed": 5,
+    }
 
     score += (
-        data["Recent_Activity"]
-        .map(ACTIVITY_POINTS)
+        leads["Recent_Activity"]
+        .map(activity_points)
         .fillna(0)
         .astype("int64")
     )
 
-    # --------------------------------------------------------
-    # INDUSTRY POINTS
-    # --------------------------------------------------------
+    # Industry scoring
+    industry_points = {
+        "technology": 15,
+        "healthcare": 10,
+        "finance": 10,
+    }
 
     score += (
-        data["Industry_Vertical"]
-        .map(INDUSTRY_POINTS)
+        leads["Industry_Vertical"]
+        .map(industry_points)
         .fillna(0)
         .astype("int64")
     )
 
-    # --------------------------------------------------------
-    # VIP OVERRIDE
-    # --------------------------------------------------------
-
-    vip_mask = (
-        data["VIP_Referral"]
-        .eq("true")
+    # VIP leads receive a score of 100.
+    is_vip = (
+        leads["VIP_Referral"]
         .fillna(False)
+        .astype(bool)
     )
 
-    data["Score"] = score.mask(
-        vip_mask,
-        100,
-    )
+    leads["Score"] = score.mask(is_vip, 100)
 
-    # --------------------------------------------------------
-    # PRIORITY CATEGORIES
-    # --------------------------------------------------------
-
-    data["Priority"] = np.select(
+    leads["Priority"] = np.select(
         [
-            data["Score"].ge(85),
-            data["Score"].ge(60),
-            data["Score"].ge(40),
+            leads["Score"].ge(85),
+            leads["Score"].ge(60),
+            leads["Score"].ge(40),
         ],
         [
             "critical",
@@ -792,1221 +478,707 @@ def score_leads(
         default="low",
     )
 
-    # Create a temporary numeric priority column for sorting.
-    data["_Priority_Rank"] = (
-        data["Priority"]
-        .map(PRIORITY_RANK)
-        .fillna(0)
-    )
-
-    # Sort by priority, score, and lead ID.
-    data = (
-        data.sort_values(
-            by=[
-                "_Priority_Rank",
-                "Score",
-                "Lead_ID",
-            ],
-            ascending=[
-                False,
-                False,
-                True,
-            ],
+    return (
+        leads.sort_values(
+            by=["Score", "Lead_ID"],
+            ascending=[False, True],
             kind="stable",
-        )
-        .drop(
-            columns=["_Priority_Rank"]
         )
         .reset_index(drop=True)
     )
 
-    return data
-
 
 # ============================================================
-# REPRESENTATIVE CAPACITY
+# VALIDATION
 # ============================================================
 
-def capacity_ratio(
-    current_capacity: float,
-    max_capacity: float,
-) -> float:
-    """Calculate one rep's capacity utilization."""
+def validate_data(leads, reps):
+    """Return a list of data-quality warnings."""
 
-    if max_capacity <= 0:
-        return 1.0
+    warnings = []
 
-    return min(
-        current_capacity / max_capacity,
-        1.0,
-    )
+    if leads["Lead_ID"].isna().any():
+        warnings.append("Some leads have missing Lead_ID values.")
 
+    duplicate_leads = leads["Lead_ID"].duplicated().sum()
 
-# ============================================================
-# REGION MATCHING
-# ============================================================
-
-def regions_overlap(
-    lead_region: Any,
-    rep_region: Any,
-) -> bool:
-    """
-    Check whether two region values overlap.
-
-    Example:
-        europe matches asia pacific and europe
-    """
-
-    lead_value = clean_text_value(
-        lead_region
-    )
-
-    rep_value = clean_text_value(
-        rep_region
-    )
-
-    invalid_values = {
-        "",
-        "n/a",
-        "unknown",
-        "none",
-        "nan",
-    }
-
-    if (
-        lead_value in invalid_values
-        or rep_value in invalid_values
-    ):
-        return False
-
-    lead_regions = {
-        region.strip()
-        for region in lead_value.split(" and ")
-        if region.strip()
-    }
-
-    rep_regions = {
-        region.strip()
-        for region in rep_value.split(" and ")
-        if region.strip()
-    }
-
-    return bool(
-        lead_regions.intersection(
-            rep_regions
+    if duplicate_leads:
+        warnings.append(
+            f"{duplicate_leads} duplicate Lead_ID values were found."
         )
+
+    if reps["Rep_ID"].isna().any():
+        warnings.append("Some representatives have missing Rep_ID values.")
+
+    duplicate_reps = reps["Rep_ID"].duplicated().sum()
+
+    if duplicate_reps:
+        warnings.append(
+            f"{duplicate_reps} duplicate Rep_ID values were found."
+        )
+
+    over_capacity = (
+        reps["Current_Capacity"]
+        .gt(reps["Max_Capacity"])
+        .fillna(False)
     )
+
+    if over_capacity.any():
+        warnings.append(
+            f"{over_capacity.sum()} representatives currently exceed "
+            "their maximum capacity."
+        )
+
+    missing_lead_regions = leads["Region"].isna().sum()
+
+    if missing_lead_regions:
+        warnings.append(
+            f"{missing_lead_regions} leads have an unknown region."
+        )
+
+    missing_lead_languages = leads["Language"].isna().sum()
+
+    if missing_lead_languages:
+        warnings.append(
+            f"{missing_lead_languages} leads have an unknown language."
+        )
+
+    missing_rep_regions = reps["Region"].isna().sum()
+
+    if missing_rep_regions:
+        warnings.append(
+            f"{missing_rep_regions} representatives have an unknown region."
+        )
+
+    missing_rep_languages = reps["Language"].isna().sum()
+
+    if missing_rep_languages:
+        warnings.append(
+            f"{missing_rep_languages} representatives have an unknown language."
+        )
+
+    return warnings
 
 
 # ============================================================
-# LEAD MATCHING AND ASSIGNMENT
+# LEAD-TO-REPRESENTATIVE ASSIGNMENT
 # ============================================================
 
 def match_and_assign(
-    leads: pd.DataFrame,
-    reps: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    leads,
+    reps,
+    require_region=True,
+    require_language=True,
+):
     """
-    Assign leads in descending priority order.
+    Assign each lead to an available representative.
 
-    Matching is sequential because assigning one lead changes
-    the representative's capacity for the next lead.
+    Representatives are ranked using:
+        1. Region match
+        2. Language match
+        3. Industry expertise match
+        4. Lowest capacity utilization
+        5. Seniority for high-priority leads
     """
 
-    # Score and sort leads before assignment.
-    ranked = score_leads(
-        leads
-    )
+    assigned_leads = leads.copy()
+    updated_reps = reps.copy()
 
-    roster = (
-        reps.copy()
-        .reset_index(drop=True)
-    )
+    # Store changing capacity values separately.
+    current_capacity = {
+        index: int(row["Current_Capacity"])
+        for index, row in updated_reps.iterrows()
+    }
 
-    assignments: list[
-        dict[str, Any]
-    ] = []
+    max_capacity = {
+        index: int(row["Max_Capacity"])
+        for index, row in updated_reps.iterrows()
+    }
 
-    for _, lead in ranked.iterrows():
-        candidates = []
+    assigned_rep_ids = []
+    assigned_rep_names = []
+    assignment_statuses = []
+    match_scores = []
 
-        for rep_index, rep in roster.iterrows():
-            max_capacity = float(
-                rep["Max_Capacity"]
-            )
+    seniority_ranking = {
+        "manager": 3,
+        "senior": 2,
+        "junior": 1,
+    }
 
-            current_capacity = float(
-                rep["Current_Capacity"]
-            )
+    for _, lead in assigned_leads.iterrows():
+        best_rep_index = None
+        best_ranking = None
+        best_match_score = 0
 
-            # Skip reps with no remaining capacity.
-            if (
-                max_capacity <= 0
-                or current_capacity >= max_capacity
-            ):
+        for rep_index, rep in updated_reps.iterrows():
+            current = current_capacity[rep_index]
+            maximum = max_capacity[rep_index]
+
+            # Do not assign to representatives with no available space.
+            if maximum <= 0 or current >= maximum:
                 continue
 
-            matched_fields = []
-
-            # Region match
-            if regions_overlap(
+            region_match = regions_overlap(
                 lead["Region"],
                 rep["Region"],
-            ):
-                matched_fields.append(
-                    "region"
+            )
+
+            language_match = (
+                pd.notna(lead["Language"])
+                and pd.notna(rep["Language"])
+                and lead["Language"] == rep["Language"]
+            )
+
+            industry_match = (
+                pd.notna(lead["Industry_Vertical"])
+                and pd.notna(rep["Industry_Vertical_Expertise"])
+                and lead["Industry_Vertical"]
+                == rep["Industry_Vertical_Expertise"]
+            )
+
+            if require_region and not region_match:
+                continue
+
+            if require_language and not language_match:
+                continue
+
+            match_score = 0
+
+            if region_match:
+                match_score += 4
+
+            if language_match:
+                match_score += 3
+
+            if industry_match:
+                match_score += 2
+
+            utilization = current / maximum
+
+            seniority_score = seniority_ranking.get(
+                rep["Seniority_Level"],
+                0,
+            )
+
+            # Higher match score is better.
+            # Lower utilization is better.
+            # More senior representatives are preferred for
+            # critical and high-priority leads.
+            if lead["Priority"] in {"critical", "high"}:
+                ranking = (
+                    match_score,
+                    seniority_score,
+                    -utilization,
+                    maximum - current,
+                )
+            else:
+                ranking = (
+                    match_score,
+                    -utilization,
+                    maximum - current,
+                    seniority_score,
                 )
 
-            # Language match
-            lead_language = clean_text_value(
-                lead["Language"]
-            )
+            if best_ranking is None or ranking > best_ranking:
+                best_ranking = ranking
+                best_rep_index = rep_index
+                best_match_score = match_score
 
-            rep_language = clean_text_value(
-                rep["Language"]
-            )
+        if best_rep_index is None:
+            assigned_rep_ids.append(pd.NA)
+            assigned_rep_names.append(pd.NA)
+            assignment_statuses.append("unassigned")
+            match_scores.append(0)
+            continue
 
-            invalid_values = {
-                "",
-                "n/a",
-                "unknown",
-                "none",
-                "nan",
-            }
+        selected_rep = updated_reps.loc[best_rep_index]
 
-            if (
-                lead_language not in invalid_values
-                and rep_language not in invalid_values
-                and lead_language == rep_language
-            ):
-                matched_fields.append(
-                    "language"
-                )
+        assigned_rep_ids.append(selected_rep["Rep_ID"])
+        assigned_rep_names.append(selected_rep["Name"])
+        assignment_statuses.append("assigned")
+        match_scores.append(best_match_score)
 
-            # Industry match
-            lead_industry = clean_text_value(
-                lead["Industry_Vertical"]
-            )
+        current_capacity[best_rep_index] += 1
 
-            rep_industry = clean_text_value(
-                rep[
-                    "Industry_Vertical_Expertise"
-                ]
-            )
+    assigned_leads["Assigned_Rep_ID"] = assigned_rep_ids
+    assigned_leads["Assigned_Rep_Name"] = assigned_rep_names
+    assigned_leads["Assignment_Status"] = assignment_statuses
+    assigned_leads["Match_Score"] = match_scores
 
-            if (
-                lead_industry not in invalid_values
-                and rep_industry not in invalid_values
-                and lead_industry == rep_industry
-            ):
-                matched_fields.append(
-                    "industry"
-                )
+    updated_reps["Final_Current_Capacity"] = [
+        current_capacity[index]
+        for index in updated_reps.index
+    ]
 
-            utilization = capacity_ratio(
-                current_capacity,
-                max_capacity,
-            )
-
-            remaining_capacity = (
-                max_capacity
-                - current_capacity
-            )
-
-            # Larger tuple values are preferred.
-            ranking = (
-                len(matched_fields),
-                -utilization,
-                remaining_capacity,
-                -rep_index,
-            )
-
-            candidates.append(
-                (
-                    ranking,
-                    rep_index,
-                    matched_fields,
-                )
-            )
-
-        if candidates:
-            (
-                _,
-                chosen_index,
-                matched_fields,
-            ) = max(
-                candidates,
-                key=lambda item: item[0],
-            )
-
-            chosen = roster.loc[
-                chosen_index
-            ]
-
-            roster.at[
-                chosen_index,
-                "Current_Capacity",
-            ] = (
-                int(
-                    chosen["Current_Capacity"]
-                )
-                + 1
-            )
-
-            assignments.append({
-                "Assigned_Rep_ID":
-                    chosen["Rep_ID"],
-
-                "Assigned_Rep":
-                    chosen["Name"],
-
-                "Rep_Match": (
-                    ", ".join(matched_fields)
-                    if matched_fields
-                    else "No exact attribute match"
-                ),
-
-                "Rep_Capacity_Status":
-                    "Assigned within capacity",
-            })
-
-        else:
-            assignments.append({
-                "Assigned_Rep_ID": "",
-                "Assigned_Rep": "",
-                "Rep_Match": "",
-                "Rep_Capacity_Status":
-                    "No rep capacity available",
-            })
-
-    result = pd.concat(
-        [
-            ranked.reset_index(drop=True),
-            pd.DataFrame(assignments),
-        ],
-        axis=1,
-    )
-
-    # Sort the final lead results.
-    result["_Priority_Rank"] = (
-        result["Priority"]
-        .map(PRIORITY_RANK)
-        .fillna(0)
-    )
-
-    result = (
-        result.sort_values(
-            by=[
-                "_Priority_Rank",
-                "Score",
-                "Lead_ID",
-            ],
-            ascending=[
-                False,
-                False,
-                True,
-            ],
-            kind="stable",
-        )
-        .drop(
-            columns=["_Priority_Rank"]
-        )
-        .reset_index(drop=True)
-    )
-
-    # Recalculate representative capacity by columns.
-    roster["Current_Capacity"] = (
-        pd.to_numeric(
-            roster["Current_Capacity"],
-            errors="coerce",
-        )
-        .fillna(0)
-        .round()
-        .astype("Int64")
-    )
-
-    maximum = (
-        roster["Max_Capacity"]
-        .astype("Float64")
-    )
-
-    current = (
-        roster["Current_Capacity"]
-        .astype("Float64")
-    )
-
-    roster["Capacity_Utilization"] = (
-        current
-        .div(
-            maximum.where(
-                maximum > 0
-            )
-        )
-        .fillna(1.0)
-        .clip(lower=0)
-    )
-
-    roster["Available_Capacity"] = (
-        roster["Max_Capacity"]
-        - roster["Current_Capacity"]
+    updated_reps["Final_Available_Capacity"] = (
+        updated_reps["Max_Capacity"]
+        - updated_reps["Final_Current_Capacity"]
     ).clip(lower=0)
 
-    # Sort representatives by lowest utilization first.
-    roster = (
-        roster.sort_values(
+    updated_reps["Final_Capacity_Utilization"] = np.where(
+        updated_reps["Max_Capacity"] > 0,
+        (
+            updated_reps["Final_Current_Capacity"]
+            / updated_reps["Max_Capacity"]
+        ),
+        1.0,
+    )
+
+    updated_reps["New_Leads_Assigned"] = (
+        updated_reps["Final_Current_Capacity"]
+        - updated_reps["Current_Capacity"]
+    )
+
+    updated_reps = (
+        updated_reps.sort_values(
             by=[
-                "Capacity_Utilization",
-                "Available_Capacity",
+                "Final_Capacity_Utilization",
+                "Final_Available_Capacity",
                 "Rep_ID",
             ],
-            ascending=[
-                True,
-                False,
-                True,
-            ],
+            ascending=[True, False, True],
             kind="stable",
         )
         .reset_index(drop=True)
     )
 
-    return result, roster
-
-
-# ============================================================
-# DOWNLOAD HELPER
-# ============================================================
-
-def csv_bytes(
-    dataframe: pd.DataFrame,
-) -> bytes:
-    """Convert a DataFrame into downloadable CSV bytes."""
-
-    return dataframe.to_csv(
-        index=False,
-    ).encode("utf-8-sig")
+    return assigned_leads, updated_reps
 
 
 # ============================================================
 # CACHED FILE PROCESSING
 # ============================================================
 
-@st.cache_data(
-    show_spinner="Cleaning lead data..."
-)
-def process_lead_file(
-    file_bytes: bytes,
-) -> pd.DataFrame:
-    """Read and clean a leads CSV with pandas."""
+@st.cache_data(show_spinner="Cleaning and scoring leads...")
+def process_leads(file_bytes):
+    """Read, clean, and score a leads CSV."""
 
-    data = pd.read_csv(
-        pd.io.common.BytesIO(
-            file_bytes
+    leads = pd.read_csv(io.BytesIO(file_bytes))
+    leads = clean_leads(leads)
+    leads = score_leads(leads)
+
+    return leads
+
+
+@st.cache_data(show_spinner="Cleaning representatives...")
+def process_reps(file_bytes):
+    """Read and clean a representatives CSV."""
+
+    reps = pd.read_csv(io.BytesIO(file_bytes))
+    reps = clean_reps(reps)
+
+    reps = (
+        reps.sort_values(
+            by=[
+                "Capacity_Utilization",
+                "Available_Capacity",
+                "Rep_ID",
+            ],
+            ascending=[True, False, True],
+            kind="stable",
         )
+        .reset_index(drop=True)
     )
 
-    data = clean_column_names(
-        data
-    )
-
-    data = normalize_leads(
-        data
-    )
-
-    return data
-
-
-@st.cache_data(
-    show_spinner="Cleaning representative data..."
-)
-def process_rep_file(
-    file_bytes: bytes,
-) -> pd.DataFrame:
-    """Read and clean a representatives CSV with pandas."""
-
-    data = pd.read_csv(
-        pd.io.common.BytesIO(
-            file_bytes
-        )
-    )
-
-    data = clean_column_names(
-        data
-    )
-
-    data = normalize_reps(
-        data
-    )
-
-    return data
+    return reps
 
 
 # ============================================================
 # STREAMLIT INTERFACE
 # ============================================================
 
-st.title("Lead Matcher")
+st.title("📊 Lead Cleaning and Assignment System")
 
 st.write(
-    "Upload lead and sales-representative CSV files to clean, "
-    "prioritize, and assign leads."
+    """
+    Upload your leads and sales-representatives CSV files. The application
+    will clean and normalize the data, calculate lead priority scores,
+    evaluate representative capacity, and assign leads to appropriate
+    representatives.
+    """
 )
-
-
-# ============================================================
-# FILE UPLOAD
-# ============================================================
 
 with st.sidebar:
-    st.header("Upload files")
+    st.header("Assignment settings")
 
-    lead_file = st.file_uploader(
-        "Leads CSV",
-        type=["csv"],
-        key="leads",
+    require_region = st.checkbox(
+        "Require region match",
+        value=True,
+        help="A lead will only be assigned to a representative "
+             "who supports the lead's region.",
     )
 
-    rep_file = st.file_uploader(
-        "Sales reps CSV",
-        type=["csv"],
-        key="reps",
+    require_language = st.checkbox(
+        "Require language match",
+        value=True,
+        help="A lead will only be assigned to a representative "
+             "who speaks the lead's language.",
     )
 
-    st.caption(
-        "Upload separate CSV files with header rows. "
-        "See README for required columns."
-    )
+    st.divider()
 
-
-if not lead_file or not rep_file:
-    st.info(
-        "Upload both CSV files to start matching."
-    )
-    st.stop()
-
-
-# ============================================================
-# READ AND CLEAN FILES WITH PANDAS
-# ============================================================
-
-try:
-    leads_clean = process_lead_file(
-        lead_file.getvalue()
-    )
-
-    reps_clean = process_rep_file(
-        rep_file.getvalue()
-    )
-
-except (
-    UnicodeDecodeError,
-    pd.errors.ParserError,
-    ValueError,
-    KeyError,
-) as error:
-    st.error(
-        f"Could not process one of the CSV files: {error}"
-    )
-    st.stop()
-
-
-if leads_clean.empty or reps_clean.empty:
-    st.error(
-        "Both files must contain at least one data row."
-    )
-    st.stop()
-
-
-# ============================================================
-# SCORE AND ASSIGN
-# ============================================================
-
-matched, final_roster = match_and_assign(
-    leads_clean,
-    reps_clean,
-)
-
-
-# ============================================================
-# SUMMARY
-# ============================================================
-
-st.success(
-    f"Processed {len(matched):,} leads and "
-    f"{len(final_roster):,} sales reps."
-)
-
-assigned_mask = (
-    matched["Assigned_Rep_ID"]
-    .fillna("")
-    .astype("string")
-    .str.strip()
-    .ne("")
-)
-
-assigned_count = int(
-    assigned_mask.sum()
-)
-
-unassigned_count = int(
-    (~assigned_mask).sum()
-)
-
-critical_count = int(
-    matched["Priority"]
-    .eq("critical")
-    .sum()
-)
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric(
-    "Leads",
-    f"{len(matched):,}",
-)
-
-col2.metric(
-    "Critical priority",
-    f"{critical_count:,}",
-)
-
-col3.metric(
-    "Assigned",
-    f"{assigned_count:,}",
-)
-
-col4.metric(
-    "Waiting for a rep",
-    f"{unassigned_count:,}",
-)
-
-
-# ============================================================
-# RESULT TABS
-# ============================================================
-
-results_tab, queue_tab = st.tabs(
-    [
-        "All leads",
-        f"Assignment queue ({unassigned_count})",
-    ]
-)
-
-
-# ============================================================
-# ALL LEADS TAB
-# ============================================================
-
-with results_tab:
-    st.subheader(
-        "Filter and sort leads"
-    )
-
-    tracker_col, chart_col = st.columns(
-        [2, 1]
-    )
-
-    with tracker_col:
-        filter1, filter2, filter3 = st.columns(3)
-
-        # ----------------------------------------------------
-        # LANGUAGE FILTER
-        # ----------------------------------------------------
-
-        with filter1:
-            languages = sorted(
-                matched["Language"]
-                .fillna("N/A")
-                .astype(str)
-                .unique()
-                .tolist()
-            )
-
-            language_filter = st.selectbox(
-                "Language",
-                ["All"] + languages,
-            )
-
-        # ----------------------------------------------------
-        # INDUSTRY FILTER
-        # ----------------------------------------------------
-
-        with filter2:
-            industries = sorted(
-                matched["Industry_Vertical"]
-                .fillna("unknown")
-                .astype(str)
-                .unique()
-                .tolist()
-            )
-
-            industry_filter = st.selectbox(
-                "Industry",
-                ["All"] + industries,
-            )
-
-        # ----------------------------------------------------
-        # COMPANY SIZE FILTER
-        # ----------------------------------------------------
-
-        with filter3:
-            all_size_groups = company_size_groups(
-                matched["Company_Size"]
-            )
-
-            size_options = [
-                "Under 100",
-                "100–999",
-                "1,000+",
-                "Missing",
-            ]
-
-            available_sizes = [
-                group
-                for group in size_options
-                if group in all_size_groups.values
-            ]
-
-            size_filter = st.selectbox(
-                "Company size",
-                ["All"] + available_sizes,
-            )
-
-        # ----------------------------------------------------
-        # APPLY COLUMN FILTERS
-        # ----------------------------------------------------
-
-        filtered = matched.copy()
-
-        if language_filter != "All":
-            filtered = filtered.loc[
-                filtered["Language"].eq(
-                    language_filter
-                )
-            ]
-
-        if industry_filter != "All":
-            filtered = filtered.loc[
-                filtered[
-                    "Industry_Vertical"
-                ].eq(
-                    industry_filter
-                )
-            ]
-
-        if size_filter != "All":
-            filtered_size_groups = (
-                company_size_groups(
-                    filtered["Company_Size"]
-                )
-            )
-
-            filtered = filtered.loc[
-                filtered_size_groups.eq(
-                    size_filter
-                )
-            ]
-
-        # ----------------------------------------------------
-        # SORTING MENU
-        # ----------------------------------------------------
-
-        sort_by = st.selectbox(
-            "Sort by",
-            [
-                "Priority score",
-                "Language",
-                "Industry",
-                "Company size",
-            ],
-        )
-
-        # ----------------------------------------------------
-        # APPLY COLUMN SORTING
-        # ----------------------------------------------------
-
-        if sort_by == "Company size":
-            filtered = filtered.sort_values(
-                by=[
-                    "Company_Size",
-                    "Score",
-                    "Lead_ID",
-                ],
-                ascending=[
-                    False,
-                    False,
-                    True,
-                ],
-                na_position="last",
-                kind="stable",
-            )
-
-        elif sort_by == "Priority score":
-            filtered = filtered.assign(
-                _Priority_Rank=(
-                    filtered["Priority"]
-                    .map(PRIORITY_RANK)
-                    .fillna(0)
-                )
-            )
-
-            filtered = (
-                filtered.sort_values(
-                    by=[
-                        "_Priority_Rank",
-                        "Score",
-                        "Lead_ID",
-                    ],
-                    ascending=[
-                        False,
-                        False,
-                        True,
-                    ],
-                    kind="stable",
-                )
-                .drop(
-                    columns=["_Priority_Rank"]
-                )
-            )
-
-        elif sort_by == "Language":
-            filtered = filtered.sort_values(
-                by=[
-                    "Language",
-                    "Score",
-                    "Lead_ID",
-                ],
-                ascending=[
-                    True,
-                    False,
-                    True,
-                ],
-                na_position="last",
-                kind="stable",
-            )
-
-        elif sort_by == "Industry":
-            filtered = filtered.sort_values(
-                by=[
-                    "Industry_Vertical",
-                    "Score",
-                    "Lead_ID",
-                ],
-                ascending=[
-                    True,
-                    False,
-                    True,
-                ],
-                na_position="last",
-                kind="stable",
-            )
-
-        filtered = filtered.reset_index(
-            drop=True
-        )
-
-        st.caption(
-            f"Showing {len(filtered):,} "
-            f"of {len(matched):,} leads."
-        )
-
-        # ----------------------------------------------------
-        # LEAD PREVIEW TABLE
-        # ----------------------------------------------------
-
-        lead_preview = filtered[
-            [
-                "Lead_ID",
-                "Company_Name",
-            ]
-        ].copy()
-
-        st.dataframe(
-            lead_preview,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        # ----------------------------------------------------
-        # SELECTED LEAD DETAILS
-        # ----------------------------------------------------
-
-        if not lead_preview.empty:
-            lead_options = (
-                lead_preview["Lead_ID"]
-                .astype(str)
-                .tolist()
-            )
-
-            selected_lead_id = st.selectbox(
-                "Select a lead to see its full details",
-                lead_options,
-                key="lead_details_selector",
-            )
-
-            selected_lead = filtered.loc[
-                filtered["Lead_ID"]
-                .astype(str)
-                .eq(selected_lead_id)
-            ]
-
-            if not selected_lead.empty:
-                with st.expander(
-                    "Selected lead details"
-                ):
-                    st.dataframe(
-                        selected_lead,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-    # ========================================================
-    # ASSIGNMENT PIE CHART
-    # ========================================================
-
-    displayed_assigned = int(
-        filtered["Assigned_Rep_ID"]
-        .fillna("")
-        .astype("string")
-        .str.strip()
-        .ne("")
-        .sum()
-    )
-
-    assignment_chart = pd.DataFrame({
-        "Assignment status": [
-            "Assigned",
-            "Unassigned",
-        ],
-        "Leads": [
-            displayed_assigned,
-            len(filtered) - displayed_assigned,
-        ],
-    })
-
-    with chart_col:
-        st.markdown(
-            "<h3 style='text-align: center;'>"
-            "Assigned vs. Unassigned Leads"
-            "</h3>",
-            unsafe_allow_html=True,
-        )
-
-        chart_left, chart_center, chart_right = (
-            st.columns([1, 4, 1])
-        )
-
-        with chart_center:
-            st.vega_lite_chart(
-                assignment_chart,
-                {
-                    "width": 260,
-                    "height": 300,
-                    "mark": {
-                        "type": "arc",
-                        "outerRadius": 105,
-                    },
-                    "encoding": {
-                        "theta": {
-                            "field": "Leads",
-                            "type": "quantitative",
-                        },
-                        "color": {
-                            "field":
-                                "Assignment status",
-                            "type": "nominal",
-                            "scale": {
-                                "domain": [
-                                    "Assigned",
-                                    "Unassigned",
-                                ],
-                                "range": [
-                                    "#2E8B57",
-                                    "#F4A261",
-                                ],
-                            },
-                            "legend": {
-                                "orient": "bottom",
-                                "title": None,
-                            },
-                        },
-                        "tooltip": [
-                            {
-                                "field":
-                                    "Assignment status",
-                                "type": "nominal",
-                            },
-                            {
-                                "field": "Leads",
-                                "type": "quantitative",
-                            },
-                        ],
-                    },
-                    "view": {
-                        "stroke": None,
-                    },
-                },
-                use_container_width=True,
-            )
-
-        # ====================================================
-        # LEADS BY SALES REPRESENTATIVE
-        # ====================================================
-
-        assigned_rows = filtered.loc[
-            filtered["Assigned_Rep_ID"]
-            .fillna("")
-            .astype("string")
-            .str.strip()
-            .ne("")
-        ].copy()
-
-        assigned_rows["_Rep_ID_Key"] = (
-            assigned_rows["Assigned_Rep_ID"]
-            .astype("string")
-            .str.strip()
-        )
-
-        rep_lead_counts = (
-            assigned_rows
-            .groupby("_Rep_ID_Key")
-            .size()
-            .rename("Assigned Leads")
-        )
-
-        rep_summary = final_roster[
-            [
-                "Rep_ID",
-                "Name",
-            ]
-        ].copy()
-
-        rep_summary["_Rep_ID_Key"] = (
-            rep_summary["Rep_ID"]
-            .astype("string")
-            .str.strip()
-        )
-
-        rep_summary["Assigned Leads"] = (
-            rep_summary["_Rep_ID_Key"]
-            .map(rep_lead_counts)
-            .fillna(0)
-            .astype("int64")
-        )
-
-        rep_summary = (
-            rep_summary[
-                [
-                    "Rep_ID",
-                    "Name",
-                    "Assigned Leads",
-                ]
-            ]
-            .sort_values(
-                by=[
-                    "Assigned Leads",
-                    "Name",
-                ],
-                ascending=[
-                    False,
-                    True,
-                ],
-                kind="stable",
-            )
-            .reset_index(drop=True)
-        )
-
-        st.subheader(
-            "Leads by Sales Rep"
-        )
-
-        st.dataframe(
-            rep_summary[
-                [
-                    "Rep_ID",
-                    "Name",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        if not rep_summary.empty:
-            rep_options = {
-                f"{row.Name} (ID: {row.Rep_ID})":
-                    str(row.Rep_ID)
-                for row in rep_summary.itertuples(
-                    index=False
-                )
-            }
-
-            selected_rep_label = st.selectbox(
-                "Select a rep to see lead count "
-                "and full details",
-                list(rep_options),
-                key="rep_details_selector",
-            )
-
-            selected_rep_id = rep_options[
-                selected_rep_label
-            ]
-
-            selected_rep = final_roster.loc[
-                final_roster["Rep_ID"]
-                .astype(str)
-                .eq(selected_rep_id)
-            ]
-
-            selected_rep_count = rep_summary.loc[
-                rep_summary["Rep_ID"]
-                .astype(str)
-                .eq(selected_rep_id),
-                "Assigned Leads",
-            ]
-
-            if not selected_rep.empty:
-                displayed_rep = (
-                    selected_rep.copy()
-                )
-
-                displayed_rep[
-                    "Assigned Leads (current filters)"
-                ] = int(
-                    selected_rep_count.iloc[0]
-                )
-
-                with st.expander(
-                    "Selected rep details"
-                ):
-                    st.dataframe(
-                        displayed_rep,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-    # ========================================================
-    # DOWNLOAD BUTTONS
-    # ========================================================
-
-    st.download_button(
-        "Download displayed leads and assignments",
-        data=csv_bytes(filtered),
-        file_name="leads_with_assignments.csv",
-        mime="text/csv",
-        key="download_filtered_leads",
-    )
-
-    st.download_button(
-        "Download updated rep capacities",
-        data=csv_bytes(final_roster),
-        file_name="sales_reps_updated_capacity.csv",
-        mime="text/csv",
-        key="download_rep_capacities",
-    )
-
-
-# ============================================================
-# ASSIGNMENT QUEUE TAB
-# ============================================================
-
-with queue_tab:
-    st.subheader(
-        "Leads waiting to be assigned"
-    )
-
-    queue = (
-        matched.loc[
-            ~assigned_mask
-        ]
-        .copy()
-    )
-
-    # Guarantee descending priority order.
-    if not queue.empty:
-        queue["_Priority_Rank"] = (
-            queue["Priority"]
-            .map(PRIORITY_RANK)
-            .fillna(0)
-        )
-
-        queue = (
-            queue.sort_values(
-                by=[
-                    "_Priority_Rank",
-                    "Score",
-                    "Lead_ID",
-                ],
-                ascending=[
-                    False,
-                    False,
-                    True,
-                ],
-                kind="stable",
-            )
-            .drop(
-                columns=["_Priority_Rank"]
-            )
-            .reset_index(drop=True)
-        )
-
-    if queue.empty:
-        st.success(
-            "There are no leads waiting for "
-            "a representative."
-        )
-
-    else:
-        queue.insert(
-            0,
-            "Queue Position",
-            range(
-                1,
-                len(queue) + 1,
-            ),
-        )
-
-        st.caption(
-            "Queue order follows lead priority score, "
-            "highest first. These leads could not be assigned "
-            "because no representative had remaining capacity."
-        )
-
-        st.dataframe(
-            queue,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.download_button(
-            "Download assignment queue",
-            data=csv_bytes(queue),
-            file_name="unassigned_lead_queue.csv",
-            mime="text/csv",
-            key="download_assignment_queue",
-        )
-
-
-# ============================================================
-# RULES EXPLANATION
-# ============================================================
-
-with st.expander(
-    "Scoring and assignment rules"
-):
     st.markdown(
-        "- VIP referrals score **100** and are always "
-        "**critical**.\n"
-        "- Company size: **50** points for 1,000+, "
-        "**30** for 100–999, **0** below 100, or "
-        "**20** when missing.\n"
-        "- Recent activity: demo/contact sales **35**, "
-        "webinar/trial **25**, whitepaper **15**, "
-        "pricing page **10**, blog subscription **5**.\n"
-        "- Industry: technology **15**, "
-        "healthcare/finance **10**.\n"
-        "- Other priority bands: high **60–84**, "
-        "medium **40–59**, low **0–39**.\n"
-        "- Rep assignment is a recommendation: region, "
-        "language, and industry matches rank first; ties "
-        "prefer lower capacity utilization. Each rep is "
-        "assigned no more than their positive Max_Capacity."
+        """
+        **Lead score rules**
+
+        - VIP referral: 100 points
+        - Company size: up to 50 points
+        - Recent activity: up to 35 points
+        - Industry: up to 15 points
+        """
+    )
+
+
+upload_column_one, upload_column_two = st.columns(2)
+
+with upload_column_one:
+    lead_file = st.file_uploader(
+        "Upload leads CSV",
+        type=["csv"],
+        key="lead_file",
+    )
+
+with upload_column_two:
+    rep_file = st.file_uploader(
+        "Upload representatives CSV",
+        type=["csv"],
+        key="rep_file",
+    )
+
+
+cleaned_leads = None
+cleaned_reps = None
+
+
+# ============================================================
+# PROCESS LEADS
+# ============================================================
+
+if lead_file is not None:
+    try:
+        cleaned_leads = process_leads(
+            lead_file.getvalue()
+        )
+
+    except Exception as error:
+        st.error(
+            f"Unable to process the leads file: {error}"
+        )
+
+
+# ============================================================
+# PROCESS REPRESENTATIVES
+# ============================================================
+
+if rep_file is not None:
+    try:
+        cleaned_reps = process_reps(
+            rep_file.getvalue()
+        )
+
+    except Exception as error:
+        st.error(
+            f"Unable to process the representatives file: {error}"
+        )
+
+
+# ============================================================
+# DISPLAY CLEANED LEADS
+# ============================================================
+
+if cleaned_leads is not None:
+    st.divider()
+    st.header("Lead results")
+
+    lead_metric_columns = st.columns(5)
+
+    lead_metric_columns[0].metric(
+        "Total leads",
+        f"{len(cleaned_leads):,}",
+    )
+
+    lead_metric_columns[1].metric(
+        "Critical",
+        f"{(cleaned_leads['Priority'] == 'critical').sum():,}",
+    )
+
+    lead_metric_columns[2].metric(
+        "High",
+        f"{(cleaned_leads['Priority'] == 'high').sum():,}",
+    )
+
+    lead_metric_columns[3].metric(
+        "Medium",
+        f"{(cleaned_leads['Priority'] == 'medium').sum():,}",
+    )
+
+    average_score = (
+        cleaned_leads["Score"].mean()
+        if not cleaned_leads.empty
+        else 0
+    )
+
+    lead_metric_columns[4].metric(
+        "Average score",
+        f"{average_score:.1f}",
+    )
+
+    selected_priorities = st.multiselect(
+        "Filter leads by priority",
+        options=[
+            "critical",
+            "high",
+            "medium",
+            "low",
+        ],
+        default=[
+            "critical",
+            "high",
+            "medium",
+            "low",
+        ],
+    )
+
+    displayed_leads = cleaned_leads[
+        cleaned_leads["Priority"].isin(selected_priorities)
+    ]
+
+    st.dataframe(
+        displayed_leads,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        label="Download cleaned leads",
+        data=dataframe_to_csv(cleaned_leads),
+        file_name="cleaned_leads.csv",
+        mime="text/csv",
+    )
+
+
+# ============================================================
+# DISPLAY CLEANED REPRESENTATIVES
+# ============================================================
+
+if cleaned_reps is not None:
+    st.divider()
+    st.header("Representative results")
+
+    rep_metric_columns = st.columns(4)
+
+    rep_metric_columns[0].metric(
+        "Total representatives",
+        f"{len(cleaned_reps):,}",
+    )
+
+    rep_metric_columns[1].metric(
+        "Available capacity",
+        f"{cleaned_reps['Available_Capacity'].sum():,.0f}",
+    )
+
+    average_utilization = (
+        cleaned_reps["Capacity_Utilization"].mean()
+        if not cleaned_reps.empty
+        else 0
+    )
+
+    rep_metric_columns[2].metric(
+        "Average utilization",
+        f"{average_utilization:.1%}",
+    )
+
+    full_reps = (
+        cleaned_reps["Available_Capacity"] <= 0
+    ).sum()
+
+    rep_metric_columns[3].metric(
+        "Representatives at capacity",
+        f"{full_reps:,}",
+    )
+
+    displayed_reps = cleaned_reps.copy()
+
+    displayed_reps["Capacity_Utilization"] = (
+        displayed_reps["Capacity_Utilization"]
+        .mul(100)
+        .round(1)
+        .astype("string")
+        + "%"
+    )
+
+    st.dataframe(
+        displayed_reps,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        label="Download cleaned representatives",
+        data=dataframe_to_csv(cleaned_reps),
+        file_name="cleaned_representatives.csv",
+        mime="text/csv",
+    )
+
+
+# ============================================================
+# VALIDATION AND ASSIGNMENT
+# ============================================================
+
+if cleaned_leads is not None and cleaned_reps is not None:
+    st.divider()
+    st.header("Data validation")
+
+    validation_warnings = validate_data(
+        cleaned_leads,
+        cleaned_reps,
+    )
+
+    if validation_warnings:
+        for warning in validation_warnings:
+            st.warning(warning)
+    else:
+        st.success("The uploaded data passed all validation checks.")
+
+    st.divider()
+    st.header("Lead assignment")
+
+    st.write(
+        """
+        Leads are processed from highest to lowest priority. Each lead is
+        assigned to the best available representative according to region,
+        language, industry expertise, seniority, and current utilization.
+        """
+    )
+
+    if st.button(
+        "Assign leads to representatives",
+        type="primary",
+        use_container_width=True,
+    ):
+        with st.spinner("Assigning leads..."):
+            assigned_leads, updated_reps = match_and_assign(
+                cleaned_leads,
+                cleaned_reps,
+                require_region=require_region,
+                require_language=require_language,
+            )
+
+        total_assigned = (
+            assigned_leads["Assignment_Status"] == "assigned"
+        ).sum()
+
+        total_unassigned = (
+            assigned_leads["Assignment_Status"] == "unassigned"
+        ).sum()
+
+        assignment_rate = (
+            total_assigned / len(assigned_leads)
+            if len(assigned_leads) > 0
+            else 0
+        )
+
+        assignment_metrics = st.columns(4)
+
+        assignment_metrics[0].metric(
+            "Total leads",
+            f"{len(assigned_leads):,}",
+        )
+
+        assignment_metrics[1].metric(
+            "Assigned",
+            f"{total_assigned:,}",
+        )
+
+        assignment_metrics[2].metric(
+            "Unassigned",
+            f"{total_unassigned:,}",
+        )
+
+        assignment_metrics[3].metric(
+            "Assignment rate",
+            f"{assignment_rate:.1%}",
+        )
+
+        assignment_tab, capacity_tab = st.tabs(
+            [
+                "Lead assignments",
+                "Updated representative capacity",
+            ]
+        )
+
+        with assignment_tab:
+            assignment_filter = st.selectbox(
+                "Show assignments",
+                options=[
+                    "All",
+                    "Assigned only",
+                    "Unassigned only",
+                ],
+            )
+
+            assignments_to_display = assigned_leads.copy()
+
+            if assignment_filter == "Assigned only":
+                assignments_to_display = assignments_to_display[
+                    assignments_to_display["Assignment_Status"]
+                    == "assigned"
+                ]
+
+            elif assignment_filter == "Unassigned only":
+                assignments_to_display = assignments_to_display[
+                    assignments_to_display["Assignment_Status"]
+                    == "unassigned"
+                ]
+
+            st.dataframe(
+                assignments_to_display,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                label="Download lead assignments",
+                data=dataframe_to_csv(assigned_leads),
+                file_name="lead_assignments.csv",
+                mime="text/csv",
+            )
+
+        with capacity_tab:
+            displayed_updated_reps = updated_reps.copy()
+
+            displayed_updated_reps[
+                "Final_Capacity_Utilization"
+            ] = (
+                displayed_updated_reps[
+                    "Final_Capacity_Utilization"
+                ]
+                .mul(100)
+                .round(1)
+                .astype("string")
+                + "%"
+            )
+
+            st.dataframe(
+                displayed_updated_reps,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                label="Download updated representative capacity",
+                data=dataframe_to_csv(updated_reps),
+                file_name="updated_representative_capacity.csv",
+                mime="text/csv",
+            )
+
+
+# ============================================================
+# EMPTY-STATE MESSAGE
+# ============================================================
+
+if lead_file is None and rep_file is None:
+    st.info(
+        "Upload your leads CSV and representatives CSV to begin."
     )
