@@ -127,11 +127,15 @@ def clean_data(leads, reps):
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
 
-    # Ensure Assigned columns exist
+    # Ensure Assigned columns exist, and clean up any non-NA empty/unassigned values
     if "Assigned_Rep_ID" not in leads.columns:
-        leads["Assigned_Rep_ID"] = None
+        leads["Assigned_Rep_ID"] = pd.NA
+    else:
+        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None"], pd.NA)
     if "Assigned_Rep_Name" not in leads.columns:
-        leads["Assigned_Rep_Name"] = None
+        leads["Assigned_Rep_Name"] = pd.NA
+    else:
+        leads["Assigned_Rep_Name"] = leads["Assigned_Rep_Name"].replace(["", "N/A", "None"], pd.NA)
 
     return leads, reps
 
@@ -160,10 +164,16 @@ with tab2:
         st.markdown("**Lead Details:**")
         st.dataframe(lead_info)
 
+        # Diagnostic section (NEW!)
+        st.markdown("### Diagnostic: Assigned_Rep_ID value counts (including NA):")
+        st.write(leads["Assigned_Rep_ID"].value_counts(dropna=False))
+        unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
+        assigned_count = leads["Assigned_Rep_ID"].notna().sum()
+        st.write(f"Assigned: {assigned_count}, Unassigned: {unassigned_count}")
+
         # Assignment button
         st.markdown("### Assign Leads to Reps")
         if st.button("Assign All Unassigned Leads"):
-            # Assignment logic
             reps_capacity = reps.copy()
             reps_capacity["leads_assigned"] = 0
             for idx, lead in leads.iterrows():
@@ -189,9 +199,10 @@ with tab2:
             st.session_state.leads = leads
             st.success("Leads assigned! Refresh dashboard/queue tabs to see updates.")
 
+        # Pie chart
         pie1 = go.Figure(go.Pie(
             labels=['Assigned', 'Unassigned'],
-            values=[leads["Assigned_Rep_ID"].notna().sum(), leads["Assigned_Rep_ID"].isna().sum()],
+            values=[assigned_count, unassigned_count],
             textinfo='percent+label'))
         pie1.update_layout(title="Lead Assignment Breakdown")
         st.plotly_chart(pie1)
