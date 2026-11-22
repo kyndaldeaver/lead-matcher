@@ -2,13 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Load CSVs ---
-@st.cache_data
-def load_and_clean_data():
-    leads = pd.read_csv("leads_scale.csv")
-    reps = pd.read_csv("reps_scale.csv")
+st.title("Sales Lead Assignment Dashboard")
 
-    # Dictionaries
+# --- File upload widgets ---
+leads_file = st.file_uploader("Upload Leads CSV", type="csv")
+reps_file = st.file_uploader("Upload Reps CSV", type="csv")
+
+# --- Proceed only if both files are uploaded ---
+if leads_file and reps_file:
+    leads = pd.read_csv(leads_file)
+    reps = pd.read_csv(reps_file)
+    
+    # --- DATA CLEANING DICTIONARIES ---
     region_map = {
         "asa-pacific": "asia pacific", "asia-pacific": "asia pacific", "asia.pacific": "asia pacific",
         "asiapacific": "asia pacific", "apac": "asia pacific",
@@ -37,7 +42,7 @@ def load_and_clean_data():
     vip_map = {"true": "true", "false": "false", "unknown": "unknown"}
     seniority_map = {"mgr": "manager", "sr": "senior", "junior": "junior", "jr": "junior", "senior": "senior", "manager": "manager"}
 
-    # Vectorized cleaning - leads
+    # --- VECTOR CLEANING - leads ---
     leads["Region"] = (
         leads["Region"].astype("string").str.strip().str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
         .map(region_map).fillna("N/A")
@@ -63,7 +68,7 @@ def load_and_clean_data():
         return s.apply(_clean)
     leads["Company_Size"] = clean_company_size(leads["Company_Size"])
 
-    # Reps cleaning
+    # --- VECTOR CLEANING - reps ---
     reps["Name"] = reps["Name"].astype(str).str.split("(").str[0].str.strip()
     reps["Region"] = (
         reps["Region"].astype("string").str.strip().str.lower().str.replace(r"[^a-z0-9]+", "", regex=True)
@@ -80,7 +85,7 @@ def load_and_clean_data():
     )
     reps = reps.sort_values("percentage_capacity", ascending=True)
 
-    # Lead scoring
+    # --- Lead scoring ---
     def score_lead(row):
         if row["VIP_Referral"] == "true":
             return 100
@@ -112,86 +117,77 @@ def load_and_clean_data():
         return score
 
     leads["score"] = leads.apply(score_lead, axis=1)
-    # Priority labels
+
     bins = [-float('inf'),40,60,85,float('inf')]
     labels=["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
-    # Sorted lead list for assignment queue
     leads = leads.sort_values("score", ascending=False)
-    return leads, reps
 
-leads, reps = load_and_clean_data()
+    # --- Dashboard ---
+    st.success("Files loaded and cleaned!")
 
-st.title("Sales Lead Assignment Dashboard")
+    st.subheader("Leads Table")
+    lead_sample_cols = [col for col in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if col in leads.columns]
+    if not lead_sample_cols:
+        lead_sample_cols = leads.columns[:2]
+    st.dataframe(leads[lead_sample_cols].head(50), use_container_width=True)
 
-# --- Table with clickable details ---
-st.subheader("Leads Table")
-main_cols = ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if "Assigned_Rep_ID" in leads else leads.columns[:2]
-st.dataframe(leads[main_cols].head(50), use_container_width=True)
+    selected_lead_id = st.selectbox("Select a Lead ID to view details", leads["Lead_ID"])
+    lead_info = leads[leads["Lead_ID"] == selected_lead_id]
+    st.markdown("**Lead Details:**")
+    st.dataframe(lead_info, use_container_width=True)
 
-selected_lead_id = st.selectbox("Select a Lead ID to view details", leads["Lead_ID"])
-lead_info = leads[leads["Lead_ID"]==selected_lead_id]
-st.markdown("**Lead Details:**")
-st.dataframe(lead_info, use_container_width=True)
-
-# --- Pie charts ---
-
-st.subheader("Assignment Status Pie Charts")
-
-assigned = leads["Assigned_Rep_ID"].notna().sum() if "Assigned_Rep_ID" in leads else 0
-unassigned = leads["Assigned_Rep_ID"].isna().sum() if "Assigned_Rep_ID" in leads else leads.shape[0]
-pie1 = go.Figure(
-    go.Pie(
-        labels=['Assigned', 'Unassigned'],
-        values=[assigned, unassigned],
-        textinfo='percent+label'
+    st.subheader("Assignment Status Pie Charts")
+    # Pie chart: Assigned/unassigned
+    assigned = leads["Assigned_Rep_ID"].notna().sum() if "Assigned_Rep_ID" in leads.columns else 0
+    unassigned = leads["Assigned_Rep_ID"].isna().sum() if "Assigned_Rep_ID" in leads.columns else leads.shape[0]
+    pie1 = go.Figure(
+        go.Pie(labels=['Assigned', 'Unassigned'], values=[assigned, unassigned], textinfo='percent+label')
     )
-)
-pie1.update_layout(title="Lead Assignment Breakdown")
-st.plotly_chart(pie1, use_container_width=True)
-
-priority_counts = leads["priority_score"].value_counts().sort_index()
-pie2 = go.Figure(
-    go.Pie(
-        labels=priority_counts.index,
-        values=priority_counts.values,
-        textinfo='percent+label'
+    pie1.update_layout(title="Lead Assignment Breakdown")
+    st.plotly_chart(pie1, use_container_width=True)
+    # Pie chart: priority
+    priority_counts = leads["priority_score"].value_counts().sort_index()
+    pie2 = go.Figure(
+        go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label')
     )
-)
-pie2.update_layout(title="Leads by Priority")
-st.plotly_chart(pie2, use_container_width=True)
+    pie2.update_layout(title="Leads by Priority")
+    st.plotly_chart(pie2, use_container_width=True)
 
-# --- Filters and sorting ---
-st.subheader("Filter & Sort Leads")
-region_filter = st.multiselect("Region", leads["Region"].unique())
-priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
-sort_option = st.selectbox("Sort by", ["score", "Company_Size", "Lead_ID"])
+    # --- Filtering
+    st.subheader("Filter & Sort Leads")
+    region_filter = st.multiselect("Region", leads["Region"].unique())
+    priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
+    sort_option = st.selectbox("Sort by", ["score", "Company_Size", "Lead_ID"])
 
-filtered = leads.copy()
-if region_filter:
-    filtered = filtered[filtered["Region"].isin(region_filter)]
-if priority_filter:
-    filtered = filtered[filtered["priority_score"].isin(priority_filter)]
-filtered = filtered.sort_values(sort_option, ascending=False)
-st.dataframe(filtered.head(50), use_container_width=True)
+    filtered = leads.copy()
+    if region_filter:
+        filtered = filtered[filtered["Region"].isin(region_filter)]
+    if priority_filter:
+        filtered = filtered[filtered["priority_score"].isin(priority_filter)]
+    filtered = filtered.sort_values(sort_option, ascending=False)
+    st.dataframe(filtered.head(50), use_container_width=True)
 
-# --- Rep capacity tab ---
-st.subheader("Reps with Zero or Negative Max Capacity")
-reps_problem = reps[reps["Max_Capacity"] <= 0]
-st.dataframe(reps_problem, use_container_width=True)
-if not reps_problem.empty:
-    edit_row = st.selectbox("Rep to edit", reps_problem["Rep_ID"])
-    new_cap = st.number_input("New Max Capacity", min_value=1, max_value=9999, value=100)
-    if st.button("Update Rep Capacity"):
-        reps.loc[reps["Rep_ID"]==edit_row, "Max_Capacity"] = new_cap
-        st.success(f"Rep {edit_row} capacity updated.")
+    # --- Reps capacity ---
+    st.subheader("Reps with Zero or Negative Max Capacity")
+    reps_problem = reps[reps["Max_Capacity"] <= 0]
+    st.dataframe(reps_problem, use_container_width=True)
+    if not reps_problem.empty:
+        edit_row_id = st.selectbox("Rep to edit", reps_problem["Rep_ID"])
+        new_cap = st.number_input("New Max Capacity", min_value=1, max_value=9999, value=100)
+        if st.button("Update Rep Capacity"):
+            reps.loc[reps["Rep_ID"] == edit_row_id, "Max_Capacity"] = new_cap
+            st.success(f"Rep {edit_row_id} capacity updated.")
 
-# --- Lead Assignment Queue ---
-st.subheader("Lead Assignment Queue - Unassigned, Highest Priority First")
-queue = leads[leads["Assigned_Rep_ID"].isna()] if "Assigned_Rep_ID" in leads else leads
-queue = queue.sort_values("priority_score", ascending=False)
-st.dataframe(queue.head(50), use_container_width=True)
+    # --- Lead Assignment Queue ---
+    st.subheader("Lead Assignment Queue - Unassigned, Highest Priority First")
+    queue = leads[leads["Assigned_Rep_ID"].isna()] if "Assigned_Rep_ID" in leads.columns else leads
+    queue = queue.sort_values("priority_score", ascending=False)
+    st.dataframe(queue.head(50), use_container_width=True)
 
-# --- Download buttons ---
-st.download_button("Download Clean Leads CSV", leads.to_csv(index=False), file_name="leads_cleaned.csv")
-st.download_button("Download Clean Reps CSV", reps.to_csv(index=False), file_name="reps_cleaned.csv")
+    # --- Download cleaned CSVs ---
+    st.download_button("Download Clean Leads CSV", leads.to_csv(index=False), file_name="leads_cleaned.csv")
+    st.download_button("Download Clean Reps CSV", reps.to_csv(index=False), file_name="reps_cleaned.csv")
+
+else:
+    st.info("Please upload both CSV files to start. Sample columns: Leads (Lead_ID, Company_Name, Assigned_Rep_ID, Assigned_Rep_Name, Region, Language, Industry_Vertical, Company_Size, Recent_Activity, VIP_Referral, etc). Reps (Rep_ID, Name, Max_Capacity, Current_Capacity, Region, Language, Industry_Vertical_Expertise, Seniority_Level, etc).")
