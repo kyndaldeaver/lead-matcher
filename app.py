@@ -110,7 +110,7 @@ def clean_data(leads, reps):
     labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
-    # Ensure assignment columns, set unassigned to pd.NA
+    # Ensure assignment columns
     if "Assigned_Rep_ID" not in leads.columns:
         leads["Assigned_Rep_ID"] = pd.NA
     else:
@@ -126,8 +126,6 @@ def fast_assign(leads, reps):
     leads = leads.copy()
     reps = reps.copy()
     reps["leads_assigned"] = 0
-
-    # Assign regionally first; if no match, use any rep with capacity
     regions = leads["Region"].unique()
     for region in regions:
         leads_unassigned = leads[leads["Region"] == region].loc[leads["Assigned_Rep_ID"].isna()]
@@ -166,6 +164,11 @@ with tab2:
         leads = st.session_state.leads
         reps = st.session_state.reps
 
+        # Clean up the assignment column
+        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
+        assigned_count = leads["Assigned_Rep_ID"].notna().sum()
+        unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
+
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
         if not lead_sample_cols:
             lead_sample_cols = leads.columns[:2]
@@ -174,26 +177,22 @@ with tab2:
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
 
-        # Calculate assignment stats
-        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
-        assigned_count = leads["Assigned_Rep_ID"].notna().sum()
-        unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
-
-        # Set up session_state flag
+        # Session flag setup
         if "assigned" not in st.session_state:
             st.session_state.assigned = False
 
-        # Assignment logic --
+        # Assignment button logic
         if not st.session_state.assigned and unassigned_count > 0:
             st.markdown("### Assign Leads to Reps (Fast!)")
             if st.button("Assign All Unassigned Leads"):
-                new_leads = fast_assign(leads, reps)  # Use your fast assignment function!
+                new_leads = fast_assign(leads, reps)
                 st.session_state.leads = new_leads
                 st.session_state.assigned = True
                 st.success("Leads assigned! Refresh tabs to see updates.")
-
-        elif st.session_state.assigned or unassigned_count == 0:
+        elif st.session_state.assigned:
             st.info("Leads have been assigned. Assignment can only be done once.")
+        elif unassigned_count == 0:
+            st.info("All leads are already assigned.")
 
         # Assignment breakdown pie chart (always visible)
         pie1 = go.Figure(go.Pie(
@@ -210,6 +209,7 @@ with tab2:
         st.plotly_chart(pie2)
     else:
         st.info("Upload files in Tab 1.")
+
 # --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
