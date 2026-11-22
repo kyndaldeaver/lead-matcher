@@ -183,12 +183,22 @@ with tab2:
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
 
-        pie1 = go.Figure(go.Pie(
-            labels=['Assigned', 'Unassigned'],
-            values=[assigned_count, unassigned_count],
-            textinfo='percent+label'))
-        pie1.update_layout(title="Lead Assignment Breakdown")
-        st.plotly_chart(pie1)
+        leads = st.session_state.leads
+        
+        # Clean up assignment column for pie chart logic!
+        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(
+            ["", "N/A", "None", "nan", None], pd.NA
+        )
+
+assigned_count = leads["Assigned_Rep_ID"].notna().sum()
+unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
+
+pie1 = go.Figure(go.Pie(
+    labels=['Assigned', 'Unassigned'],
+    values=[assigned_count, unassigned_count],
+    textinfo='percent+label'))
+pie1.update_layout(title="Lead Assignment Breakdown")
+st.plotly_chart(pie1)
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
         pie2.update_layout(title="Leads by Priority")
