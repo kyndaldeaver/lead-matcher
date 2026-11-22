@@ -792,23 +792,6 @@ st.write(
     """
 )
 
-with st.sidebar:
-    st.header("Assignment settings")
-    )
-
-    st.divider()
-
-    st.markdown(
-        """
-        **Lead score rules**
-
-        - VIP referral: 100 points
-        - Company size: up to 50 points
-        - Recent activity: up to 35 points
-        - Industry: up to 15 points
-        """
-    )
-
 
 upload_column_one, upload_column_two = st.columns(2)
 
