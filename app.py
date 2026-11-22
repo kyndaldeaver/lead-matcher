@@ -1,9 +1,8 @@
-# importing libaries
-import io # lets pandas read an uploaded file
+import io
 
-import numpy as np # provides fast calulations
-import pandas as pd # helps form tables and sorts adn cleans files
-import streamlit as st # web based application
+import numpy as np
+import pandas as pd
+import streamlit as st
 
 
 # ============================================================
@@ -11,7 +10,7 @@ import streamlit as st # web based application
 # ============================================================
 
 st.set_page_config(
-    page_title="Team 36's Lead Matcher System",
+    page_title="Lead Assignment System",
     page_icon="📊",
     layout="wide",
 )
