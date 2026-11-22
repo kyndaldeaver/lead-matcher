@@ -44,12 +44,8 @@ REP_REQUIRED = {
 }
 
 
-# ============================================================
-# COLUMN HEADER CLEANING
-# ============================================================
-
-HEADER_ALIASES = {
-    # Lead columns
+# HEADER_ALIASES = {
+    # Leads
     "leadid": "Lead_ID",
     "companyname": "Company_Name",
     "industryvertical": "Industry_Vertical",
@@ -57,68 +53,52 @@ HEADER_ALIASES = {
     "recentactivity": "Recent_Activity",
     "vipreferral": "VIP_Referral",
 
-    # Representative columns
+    # Representatives
     "repid": "Rep_ID",
     "name": "Name",
-    "industryverticalexpertise":
-        "Industry_Vertical_Expertise",
+    "industryverticalexpertise": "Industry_Vertical_Expertise",
     "currentcapacity": "Current_Capacity",
     "maxcapacity": "Max_Capacity",
 
-    # Shared columns
+    # Shared
     "region": "Region",
     "language": "Language",
 }
 
 
-def header_key(value: Any) -> str:
-    """
-    Convert a header into a simple lookup key.
+def clean_column_names(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Clean all CSV column headers."""
 
-    Examples:
-        "Lead ID"   -> "leadid"
-        "Lead_ID"   -> "leadid"
-        " Lead-ID " -> "leadid"
-    """
+    data = dataframe.copy()
 
-    return re.sub(
-        r"[^a-z0-9]+",
-        "",
-        str(value).strip().lower(),
+    header_keys = (
+        pd.Index(data.columns)
+        .astype("string")
+        .str.replace("\ufeff", "", regex=False)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"[^a-z0-9]+", "", regex=True)
     )
 
-
-def clean_column_names(
-    frame: pd.DataFrame,
-) -> pd.DataFrame:
-    """Standardize uploaded CSV column names."""
-
-    data = frame.copy()
-
-    cleaned_columns = []
-
-    for column in data.columns:
-        key = header_key(column)
-
-        cleaned_columns.append(
-            HEADER_ALIASES.get(
-                key,
-                str(column).strip(),
-            )
+    cleaned_headers = [
+        HEADER_ALIASES.get(key, original.strip())
+        for key, original in zip(
+            header_keys,
+            data.columns.astype(str),
         )
+    ]
 
-    if len(cleaned_columns) != len(set(cleaned_columns)):
+    if len(cleaned_headers) != len(set(cleaned_headers)):
         raise ValueError(
-            "The CSV contains duplicate columns after "
-            "cleaning its headers."
+            "The file contains duplicate columns after "
+            "the headers were cleaned."
         )
 
-    data.columns = cleaned_columns
+    data.columns = cleaned_headers
 
     return data
-
-
-# ============================================================
+    
+============================================================
 # NORMALIZATION DICTIONARIES
 # ============================================================
 
@@ -136,19 +116,17 @@ REGION_ALIASES = {
     "nortamerica": "north america",
     "northamer": "north america",
 
-    "asiapacificeurope":
-        "asia pacific and europe",
-
+    "asiapacificeurope": "asia pacific and europe",
     "northamericaasiapacific":
         "north america and asia pacific",
 }
 
 LANGUAGE_ALIASES = {
-    "es": "spanish",
-    "spanish": "spanish",
-
     "en": "english",
     "english": "english",
+
+    "es": "spanish",
+    "spanish": "spanish",
 
     "de": "german",
     "german": "german",
@@ -161,39 +139,29 @@ ACTIVITY_ALIASES = {
     "subscribed": "Subscribed To Blog",
     "subscribedtoblog": "Subscribed To Blog",
 
-    "downloadedwhitepaper":
-        "Downloaded Whitepaper",
-
-    "requestedlivedemo":
-        "Requested Live Demo",
-
-    "openedmarketingemail":
-        "Opened Marketing Email",
-
-    "contactsales":
-        "Contact Sales",
-
-    "visitedpricingpage":
-        "Visited Pricing Page",
-
-    "startedfreetrial":
-        "Started Free Trial",
-
-    "attendedwebinar":
-        "Attended Webinar",
+    "downloadedwhitepaper": "Downloaded Whitepaper",
+    "requestedlivedemo": "Requested Live Demo",
+    "openedmarketingemail": "Opened Marketing Email",
+    "contactsales": "Contact Sales",
+    "visitedpricingpage": "Visited Pricing Page",
+    "startedfreetrial": "Started Free Trial",
+    "attendedwebinar": "Attended Webinar",
 }
 
 ACTIVITY_POINTS = {
     "Requested Live Demo": 35,
     "Contact Sales": 35,
-
     "Attended Webinar": 25,
     "Started Free Trial": 25,
-
     "Downloaded Whitepaper": 15,
     "Visited Pricing Page": 10,
-
     "Subscribed To Blog": 5,
+}
+
+INDUSTRY_POINTS = {
+    "technology": 15,
+    "healthcare": 10,
+    "finance": 10,
 }
 
 PRIORITY_RANK = {
@@ -278,31 +246,23 @@ def clean_text(value: Any) -> str:
 # COMPANY SIZE CLEANING
 # ============================================================
 
-def clean_company_size_series(
+def clean_company_size_column(
     series: pd.Series,
 ) -> pd.Series:
     """
-    Clean the complete Company_Size column.
+    Convert an entire company-size column to numbers.
 
     Examples:
-        "500"   -> 500
-        "2.5k"  -> 2500
-        "1,200" -> 1200
-        "N/A"   -> missing
+        500   -> 500
+        2.5k  -> 2500
+        1,200 -> 1200
+        N/A   -> missing
     """
 
     text = (
-        normalize_text_series(series)
-        .str.replace(
-            ",",
-            "",
-            regex=False,
-        )
-        .str.replace(
-            " ",
-            "",
-            regex=False,
-        )
+        normalize_text_column(series)
+        .str.replace(",", "", regex=False)
+        .str.replace(" ", "", regex=False)
     )
 
     numbers = pd.to_numeric(
@@ -313,19 +273,15 @@ def clean_company_size_series(
         errors="coerce",
     )
 
-    multiplier = np.where(
-        text.str.endswith(
-            "k",
-            na=False,
-        ),
+    multipliers = np.where(
+        text.str.endswith("k", na=False),
         1000,
         1,
     )
 
-    result = numbers * multiplier
-
     return (
-        result
+        numbers
+        .mul(multipliers)
         .round()
         .astype("Float64")
     )
@@ -336,108 +292,67 @@ def clean_company_size_series(
 # ============================================================
 
 def normalize_leads(
-    frame: pd.DataFrame,
+    dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Clean and normalize all lead columns."""
+    """Clean the leads DataFrame using column operations."""
 
-    data = frame.copy()
+    data = dataframe.copy()
 
-    # Clean lead IDs.
     data["Lead_ID"] = (
         data["Lead_ID"]
         .astype("string")
         .str.strip()
     )
 
-    # Clean company names without making them lowercase.
     data["Company_Name"] = (
         data["Company_Name"]
         .astype("string")
         .str.strip()
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+        .str.replace(r"\s+", " ", regex=True)
     )
 
-    # Normalize regions.
-    original_regions = normalize_text_series(
-        data["Region"]
+    data["Region"] = clean_mapped_column(
+        data["Region"],
+        REGION_ALIASES,
+        default="N/A",
+        preserve_unknown=True,
     )
 
-    region_keys = normalize_key_series(
-        data["Region"]
+    data["Language"] = clean_mapped_column(
+        data["Language"],
+        LANGUAGE_ALIASES,
+        default="N/A",
     )
 
-    data["Region"] = (
-        region_keys
-        .map(REGION_ALIASES)
-        .fillna(original_regions)
-        .fillna("N/A")
-        .astype("string")
-    )
-
-    # Normalize languages.
-    language_keys = normalize_key_series(
-        data["Language"]
-    )
-
-    data["Language"] = (
-        language_keys
-        .map(LANGUAGE_ALIASES)
-        .fillna("N/A")
-        .astype("string")
-    )
-
-    # Normalize industry.
     data["Industry_Vertical"] = (
-        normalize_text_series(
+        normalize_text_column(
             data["Industry_Vertical"]
         )
         .fillna("unknown")
         .astype("string")
     )
 
-    # Convert company size to numeric values.
-    data["Company_Size"] = (
-        clean_company_size_series(
-            data["Company_Size"]
-        )
+    data["Company_Size"] = clean_company_size_column(
+        data["Company_Size"]
     )
 
-    # Normalize recent activity.
-    activity_keys = normalize_key_series(
-        data["Recent_Activity"]
-    )
+    data["Recent_Activity"] = clean_mapped_column(
+        data["Recent_Activity"],
+        ACTIVITY_ALIASES,
+        default="Unknown",
+        preserve_unknown=True,
+    ).str.title()
 
-    original_activity = normalize_text_series(
-        data["Recent_Activity"]
-    )
-
-    data["Recent_Activity"] = (
-        activity_keys
-        .map(ACTIVITY_ALIASES)
-        .fillna(
-            original_activity.str.title()
-        )
-        .fillna("Unknown")
-        .astype("string")
-    )
-
-    # Normalize VIP values.
-    vip_text = normalize_text_series(
+    vip_values = normalize_text_column(
         data["VIP_Referral"]
     )
 
     data["VIP_Referral"] = (
-        vip_text
+        vip_values
         .where(
-            vip_text.isin({
-                "true",
-                "false",
-                "unknown",
-            }),
+            vip_values.isin(
+                ["true", "false", "unknown"]
+            ),
             "unknown",
         )
         .fillna("unknown")
@@ -452,23 +367,18 @@ def normalize_leads(
 # ============================================================
 
 def normalize_reps(
-    frame: pd.DataFrame,
+    dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Clean and normalize all representative columns."""
+    """Clean the representatives DataFrame using column operations."""
 
-    data = frame.copy()
+    data = dataframe.copy()
 
-    # Clean representative IDs.
     data["Rep_ID"] = (
         data["Rep_ID"]
         .astype("string")
         .str.strip()
     )
 
-    # Remove parenthetical information from names.
-    #
-    # Example:
-    # "Maria Fernandez (West)" -> "Maria Fernandez"
     data["Name"] = (
         data["Name"]
         .astype("string")
@@ -477,54 +387,32 @@ def normalize_reps(
             " ",
             regex=True,
         )
-        .str.replace(
-            r"\s+",
-            " ",
-            regex=True,
-        )
+        .str.replace(r"\s+", " ", regex=True)
         .str.strip()
         .fillna("")
     )
 
-    # Normalize regions.
-    original_regions = normalize_text_series(
-        data["Region"]
+    data["Region"] = clean_mapped_column(
+        data["Region"],
+        REGION_ALIASES,
+        default="N/A",
+        preserve_unknown=True,
     )
 
-    region_keys = normalize_key_series(
-        data["Region"]
+    data["Language"] = clean_mapped_column(
+        data["Language"],
+        LANGUAGE_ALIASES,
+        default="N/A",
     )
 
-    data["Region"] = (
-        region_keys
-        .map(REGION_ALIASES)
-        .fillna(original_regions)
-        .fillna("N/A")
-        .astype("string")
-    )
-
-    # Normalize languages.
-    language_keys = normalize_key_series(
-        data["Language"]
-    )
-
-    data["Language"] = (
-        language_keys
-        .map(LANGUAGE_ALIASES)
-        .fillna("N/A")
-        .astype("string")
-    )
-
-    # Normalize industry expertise.
     data["Industry_Vertical_Expertise"] = (
-        normalize_text_series(
+        normalize_text_column(
             data["Industry_Vertical_Expertise"]
         )
         .fillna("unknown")
         .astype("string")
     )
 
-    # Clean current capacity.
     data["Current_Capacity"] = (
         pd.to_numeric(
             data["Current_Capacity"],
@@ -536,10 +424,6 @@ def normalize_reps(
         .astype("Int64")
     )
 
-    # Clean maximum capacity.
-    #
-    # Zero and negative capacities become zero, meaning that
-    # the representative cannot receive new leads.
     data["Max_Capacity"] = (
         pd.to_numeric(
             data["Max_Capacity"],
@@ -551,28 +435,112 @@ def normalize_reps(
         .astype("Int64")
     )
 
+    maximum = data["Max_Capacity"].astype("Float64")
+    current = data["Current_Capacity"].astype("Float64")
+
+    data["Capacity_Utilization"] = (
+        current
+        .div(maximum.where(maximum > 0))
+        .fillna(1.0)
+        .clip(lower=0)
+    )
+
+    data["Available_Capacity"] = (
+        data["Max_Capacity"]
+        - data["Current_Capacity"]
+    ).clip(lower=0)
+
     return data
 
 
 # ============================================================
 # LEAD SCORING AND SORTING
 # ============================================================
-
-def score_leads(
-    leads: pd.DataFrame,
+def normalize_reps(
+    dataframe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
-    Calculate lead scores and sort leads from highest priority
-    to lowest priority.
-    """
+    """Clean the representatives DataFrame using column operations."""
 
-    data = leads.copy()
+    data = dataframe.copy()
 
-    score = pd.Series(
-        0,
-        index=data.index,
-        dtype="int64",
+    data["Rep_ID"] = (
+        data["Rep_ID"]
+        .astype("string")
+        .str.strip()
     )
+
+    data["Name"] = (
+        data["Name"]
+        .astype("string")
+        .str.replace(
+            r"\s*\([^)]*\)\s*",
+            " ",
+            regex=True,
+        )
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+        .fillna("")
+    )
+
+    data["Region"] = clean_mapped_column(
+        data["Region"],
+        REGION_ALIASES,
+        default="N/A",
+        preserve_unknown=True,
+    )
+
+    data["Language"] = clean_mapped_column(
+        data["Language"],
+        LANGUAGE_ALIASES,
+        default="N/A",
+    )
+
+    data["Industry_Vertical_Expertise"] = (
+        normalize_text_column(
+            data["Industry_Vertical_Expertise"]
+        )
+        .fillna("unknown")
+        .astype("string")
+    )
+
+    data["Current_Capacity"] = (
+        pd.to_numeric(
+            data["Current_Capacity"],
+            errors="coerce",
+        )
+        .fillna(0)
+        .clip(lower=0)
+        .round()
+        .astype("Int64")
+    )
+
+    data["Max_Capacity"] = (
+        pd.to_numeric(
+            data["Max_Capacity"],
+            errors="coerce",
+        )
+        .fillna(0)
+        .clip(lower=0)
+        .round()
+        .astype("Int64")
+    )
+
+    maximum = data["Max_Capacity"].astype("Float64")
+    current = data["Current_Capacity"].astype("Float64")
+
+    data["Capacity_Utilization"] = (
+        current
+        .div(maximum.where(maximum > 0))
+        .fillna(1.0)
+        .clip(lower=0)
+    )
+
+    data["Available_Capacity"] = (
+        data["Max_Capacity"]
+        - data["Current_Capacity"]
+    ).clip(lower=0)
+
+    return data
 
     # --------------------------------------------------------
     # COMPANY SIZE POINTS
