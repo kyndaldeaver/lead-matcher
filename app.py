@@ -171,30 +171,39 @@ if leads_file and reps_file:
 
     # Tab 3: Lead Filtering
     with tab3:
-        with tab3:
-            st.header("Filter & Sort Leads")
-            if "leads" in st.session_state:
-                leads = st.session_state.leads
-        
-                region_filter = st.multiselect("Region", leads["Region"].unique())
-                priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
-                language_filter = st.multiselect("Language", leads["Language"].unique())  # NEW
-        
-                sort_option = st.selectbox(
-                    "Sort by", ["score", "Company_Size", "Lead_ID", "Language"]
-                )
-                filtered = leads.copy()
-                if region_filter:
-                    filtered = filtered[filtered["Region"].isin(region_filter)]
-                if priority_filter:
-                    filtered = filtered[filtered["priority_score"].isin(priority_filter)]
-                if language_filter:
-                    filtered = filtered[filtered["Language"].isin(language_filter)]  # NEW
-                filtered = filtered.sort_values(sort_option, ascending=False)
-                st.dataframe(filtered.head(50))
-            else:
-                st.info("Upload files in Tab 1 to filter leads.")
-
+        st.header("Filter & Sort Leads")
+        if "leads" in st.session_state:
+            leads = st.session_state.leads
+    
+            region_filter = st.multiselect("Region", leads["Region"].unique())
+            priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
+            language_filter = st.multiselect("Language", leads["Language"].unique())
+    
+            sort_option = st.selectbox(
+                "Sort by",
+                ["score", "Company_Size", "Lead_ID", "Language"]
+            )
+            sort_direction = st.radio(
+                "Sort direction",
+                [ "Descending", "Ascending" ],
+                index=0,
+                horizontal=True
+            )
+            ascending = sort_direction == "Ascending"
+    
+            filtered = leads.copy()
+            if region_filter:
+                filtered = filtered[filtered["Region"].isin(region_filter)]
+            if priority_filter:
+                filtered = filtered[filtered["priority_score"].isin(priority_filter)]
+            if language_filter:
+                filtered = filtered[filtered["Language"].isin(language_filter)]
+    
+            filtered = filtered.sort_values(sort_option, ascending=ascending)
+            st.dataframe(filtered.head(50))
+        else:
+            st.info("Upload files in Tab 1 to filter leads.")
+            
     # Tab 4: Rep Capacity Editing
     with tab4:
         st.header("Reps with Zero or Negative Max Capacity")
