@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 
 st.title("Sales Lead Assignment Dashboard")
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -12,7 +11,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "6. Download Data"
 ])
 
-# --- Cleaning Function ---
 def clean_data(leads, reps):
     region_map = {
         "asa-pacific": "asia pacific", "asia-pacific": "asia pacific", "asia.pacific": "asia pacific",
@@ -110,7 +108,6 @@ def clean_data(leads, reps):
     labels = ["low","medium","high","critical"]
     leads["priority_score"] = pd.cut(leads["score"], bins=bins, labels=labels)
     leads = leads.sort_values("score", ascending=False)
-    # Ensure assignment columns
     if "Assigned_Rep_ID" not in leads.columns:
         leads["Assigned_Rep_ID"] = pd.NA
     else:
@@ -121,7 +118,6 @@ def clean_data(leads, reps):
         leads["Assigned_Rep_Name"] = leads["Assigned_Rep_Name"].replace(["", "N/A", "None", "nan", None], pd.NA)
     return leads, reps
 
-# --- Efficient Assignment Function ---
 def fast_assign(leads, reps):
     leads = leads.copy()
     reps = reps.copy()
@@ -143,7 +139,6 @@ def fast_assign(leads, reps):
             rep_idx_cycle += 1
     return leads
 
-# --- Tab 1: Upload ---
 with tab1:
     st.header("Upload your CSV files")
     leads_file = st.file_uploader("Upload Leads CSV", type="csv")
@@ -157,14 +152,11 @@ if leads_file and reps_file and ("leads" not in st.session_state or "reps" not i
     st.session_state.leads = leads
     st.session_state.reps = reps
 
-# --- Tab 2: Dashboard ---
 with tab2:
     st.header("Overview Dashboard")
     if ("leads" in st.session_state) and ("reps" in st.session_state):
         leads = st.session_state.leads
         reps = st.session_state.reps
-
-        # Clean up the assignment column
         leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
@@ -177,11 +169,9 @@ with tab2:
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
 
-        # Session flag setup
         if "assigned" not in st.session_state:
             st.session_state.assigned = False
 
-        # Assignment button logic
         if not st.session_state.assigned and unassigned_count > 0:
             st.markdown("### Assign Leads to Reps (Fast!)")
             if st.button("Assign All Unassigned Leads"):
@@ -193,24 +183,9 @@ with tab2:
             st.info("Leads have been assigned. Assignment can only be done once.")
         elif unassigned_count == 0:
             st.info("All leads are already assigned.")
-
-        # Assignment breakdown pie chart (always visible)
-        pie1 = go.Figure(go.Pie(
-            labels=['Assigned', 'Unassigned'],
-            values=[assigned_count, unassigned_count],
-            textinfo='percent+label'))
-        pie1.update_layout(title="Lead Assignment Breakdown")
-        st.plotly_chart(pie1)
-
-        # Priority distribution pie chart
-        priority_counts = leads["priority_score"].value_counts().sort_index()
-        pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
-        pie2.update_layout(title="Leads by Priority")
-        st.plotly_chart(pie2)
     else:
         st.info("Upload files in Tab 1.")
 
-# --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
     if "leads" in st.session_state:
@@ -228,7 +203,6 @@ with tab3:
     else:
         st.info("Upload files in Tab 1.")
 
-# --- Tab 4: Rep Capacity ---
 with tab4:
     st.header("Reps with Zero or Negative Max Capacity")
     if "reps" in st.session_state:
@@ -245,7 +219,6 @@ with tab4:
     else:
         st.info("Upload files in Tab 1.")
 
-# --- Tab 5: Assignment Queue ---
 with tab5:
     st.header("Lead Assignment Queue - Unassigned, Highest Priority First")
     if "leads" in st.session_state:
@@ -256,7 +229,6 @@ with tab5:
     else:
         st.info("Upload files in Tab 1.")
 
-# --- Tab 6: Download ---
 with tab6:
     st.header("Download Cleaned CSVs")
     if "leads" in st.session_state:
