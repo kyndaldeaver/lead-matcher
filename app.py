@@ -149,11 +149,11 @@ with tab2:
         leads = st.session_state.leads
         reps = st.session_state.reps
 
+        # Show main leads/reps table
         lead_sample_cols = [c for c in ["Lead_ID", "Company_Name", "Assigned_Rep_ID", "Assigned_Rep_Name"] if c in leads.columns]
         if not lead_sample_cols:
             lead_sample_cols = leads.columns[:2]
         st.dataframe(leads[lead_sample_cols].head(50))
-
         selected_lead_id = st.selectbox("Select Lead ID for details", leads["Lead_ID"])
         st.dataframe(leads[leads["Lead_ID"] == selected_lead_id])
 
@@ -164,7 +164,6 @@ with tab2:
             for idx, lead in leads.iterrows():
                 if pd.notna(lead["Assigned_Rep_ID"]):
                     continue
-                # Only reps with remaining capacity in region
                 possible_reps = reps_capacity[
                     (reps_capacity["Region"] == lead["Region"]) &
                     (reps_capacity["leads_assigned"] < reps_capacity["Max_Capacity"])
@@ -180,32 +179,24 @@ with tab2:
             st.session_state.leads = leads
             st.success("Leads assigned! Refresh tabs to see updates.")
 
+        # NOW: Assignment breakdown pie chart (correct scope)
+        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(["", "N/A", "None", "nan", None], pd.NA)
         assigned_count = leads["Assigned_Rep_ID"].notna().sum()
         unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
+        pie1 = go.Figure(go.Pie(
+            labels=['Assigned', 'Unassigned'],
+            values=[assigned_count, unassigned_count],
+            textinfo='percent+label'))
+        pie1.update_layout(title="Lead Assignment Breakdown")
+        st.plotly_chart(pie1)
 
-        leads = st.session_state.leads
-        
-        # Clean up assignment column for pie chart logic!
-        leads["Assigned_Rep_ID"] = leads["Assigned_Rep_ID"].replace(
-            ["", "N/A", "None", "nan", None], pd.NA
-        )
-
-assigned_count = leads["Assigned_Rep_ID"].notna().sum()
-unassigned_count = leads["Assigned_Rep_ID"].isna().sum()
-
-pie1 = go.Figure(go.Pie(
-    labels=['Assigned', 'Unassigned'],
-    values=[assigned_count, unassigned_count],
-    textinfo='percent+label'))
-pie1.update_layout(title="Lead Assignment Breakdown")
-st.plotly_chart(pie1)
+        # Priority distribution pie chart
         priority_counts = leads["priority_score"].value_counts().sort_index()
         pie2 = go.Figure(go.Pie(labels=priority_counts.index, values=priority_counts.values, textinfo='percent+label'))
         pie2.update_layout(title="Leads by Priority")
         st.plotly_chart(pie2)
     else:
         st.info("Upload files in Tab 1.")
-
 # --- Tab 3: Filtering ---
 with tab3:
     st.header("Filter & Sort Leads")
