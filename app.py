@@ -179,13 +179,15 @@ if leads_file and reps_file:
             priority_filter = st.multiselect("Priority", leads["priority_score"].unique())
             language_filter = st.multiselect("Language", leads["Language"].unique())
     
-            # Dynamically generate all possible sort columns
-            candidate_sort_cols = list(leads.columns)
-            sort_option = st.selectbox("Sort by", candidate_sort_cols)
-    
+            candidate_sort_cols = [col for col in ["score", "Company_Size", "Lead_ID", "Language"] if col in leads.columns]
+            
+            st.write("Sort columns available:", filtered.columns.tolist())
+            st.write("Sort_option selected:", sort_option)
+
+            
             sort_direction = st.radio(
                 "Sort direction",
-                ["Descending", "Ascending"],
+                [ "Descending", "Ascending" ],
                 index=0,
                 horizontal=True
             )
@@ -199,16 +201,11 @@ if leads_file and reps_file:
             if language_filter:
                 filtered = filtered[filtered["Language"].isin(language_filter)]
     
-            # DOUBLE-CHECK: user can only pick an available column from selectbox, but double-check for safety!
-            if sort_option in filtered.columns:
-                filtered = filtered.sort_values(sort_option, ascending=ascending)
-            else:
-                st.warning(f"Sort column '{sort_option}' not present after filtering. Available: {filtered.columns.tolist()}")
-    
+            filtered = filtered.sort_values(sort_option, ascending=ascending)
             st.dataframe(filtered.head(50))
         else:
             st.info("Upload files in Tab 1 to filter leads.")
-        
+            
     # Tab 4: Rep Capacity Editing
     with tab4:
         st.header("Reps with Zero or Negative Max Capacity")
