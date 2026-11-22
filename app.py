@@ -941,65 +941,65 @@ if cleaned_leads is not None:
 # ============================================================
 # DISPLAY CLEANED REPRESENTATIVES
 # ============================================================
-
-if cleaned_reps is not None:
-    st.divider()
-    st.header("Representative results")
-
-    rep_metric_columns = st.columns(4)
-
-    rep_metric_columns[0].metric(
-        "Total representatives",
-        f"{len(cleaned_reps):,}",
-    )
-
-    rep_metric_columns[1].metric(
-        "Available capacity",
-        f"{cleaned_reps['Available_Capacity'].sum():,.0f}",
-    )
-
-    average_utilization = (
-        cleaned_reps["Capacity_Utilization"].mean()
-        if not cleaned_reps.empty
-        else 0
-    )
-
-    rep_metric_columns[2].metric(
-        "Average utilization",
-        f"{average_utilization:.1%}",
-    )
-
-    full_reps = (
-        cleaned_reps["Available_Capacity"] <= 0
-    ).sum()
-
-    rep_metric_columns[3].metric(
-        "Representatives at capacity",
-        f"{full_reps:,}",
-    )
-
-    displayed_reps = cleaned_reps.copy()
-
-    displayed_reps["Capacity_Utilization"] = (
-        displayed_reps["Capacity_Utilization"]
-        .mul(100)
-        .round(1)
-        .astype("string")
-        + "%"
-    )
-
-    st.dataframe(
-        displayed_reps,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.download_button(
-        label="Download cleaned representatives",
-        data=dataframe_to_csv(cleaned_reps),
-        file_name="cleaned_representatives.csv",
-        mime="text/csv",
-    )
+with tab1:
+    if cleaned_reps is not None:
+        st.divider()
+        st.header("Representative results")
+    
+        rep_metric_columns = st.columns(4)
+    
+        rep_metric_columns[0].metric(
+            "Total representatives",
+            f"{len(cleaned_reps):,}",
+        )
+    
+        rep_metric_columns[1].metric(
+            "Available capacity",
+            f"{cleaned_reps['Available_Capacity'].sum():,.0f}",
+        )
+    
+        average_utilization = (
+            cleaned_reps["Capacity_Utilization"].mean()
+            if not cleaned_reps.empty
+            else 0
+        )
+    
+        rep_metric_columns[2].metric(
+            "Average utilization",
+            f"{average_utilization:.1%}",
+        )
+    
+        full_reps = (
+            cleaned_reps["Available_Capacity"] <= 0
+        ).sum()
+    
+        rep_metric_columns[3].metric(
+            "Representatives at capacity",
+            f"{full_reps:,}",
+        )
+    
+        displayed_reps = cleaned_reps.copy()
+    
+        displayed_reps["Capacity_Utilization"] = (
+            displayed_reps["Capacity_Utilization"]
+            .mul(100)
+            .round(1)
+            .astype("string")
+            + "%"
+        )
+    
+        st.dataframe(
+            displayed_reps,
+            use_container_width=True,
+            hide_index=True,
+        )
+    
+        st.download_button(
+            label="Download cleaned representatives",
+            data=dataframe_to_csv(cleaned_reps),
+            file_name="cleaned_representatives.csv",
+            mime="text/csv",
+        )
 
 
 # ============================================================
