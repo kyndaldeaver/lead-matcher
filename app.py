@@ -56,21 +56,21 @@ if leads_file and reps_file:
     )
     # Company size vectorized
     def clean_company_size(s):
-    def _clean(val):
-        # Handle missing values or NaN
-        if pd.isna(val) or str(val).strip().lower() in ["none", "nan", "n/a", ""]:
-            return "N/A"
-        val_str = str(val).strip().lower()
-        if "k" in val_str:
+        def _clean(val):
+            # Handle missing values or NaN
+            if pd.isna(val) or str(val).strip().lower() in ["none", "nan", "n/a", ""]:
+                return "N/A"
+            val_str = str(val).strip().lower()
+            if "k" in val_str:
+                try:
+                    return int(float(val_str.replace("k", "")) * 1000)
+                except:
+                    return "N/A"
             try:
-                return int(float(val_str.replace("k", "")) * 1000)
+                return int(float(val_str))
             except:
                 return "N/A"
-        try:
-            return int(float(val_str))
-        except:
-            return "N/A"
-    return s.apply(_clean)
+        return s.apply(_clean)
     leads["Company_Size"] = clean_company_size(leads["Company_Size"])
 
     # --- VECTOR CLEANING - reps ---
